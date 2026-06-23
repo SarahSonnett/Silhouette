@@ -19,6 +19,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+from matplotlib.lines import Line2D
 from matplotlib.patches import Ellipse
 
 from ._compat import HAVE_SPOTLIGHT, spotlight
@@ -28,6 +29,17 @@ from .model import (
     aspect_angle,
     mean_mag_model,
 )
+
+# Larger, consistent typography across every Silhouette figure.
+plt.rcParams.update({
+    "font.size": 14,
+    "axes.titlesize": 17,
+    "axes.labelsize": 15,
+    "xtick.labelsize": 13,
+    "ytick.labelsize": 13,
+    "legend.fontsize": 13,
+    "figure.titlesize": 19,
+})
 
 
 # ---------------------------------------------------------------------------
@@ -103,14 +115,14 @@ def plot_model_mosaic(
             ax = axarr[i // n_cols][i % n_cols]
             ax.imshow(np.clip(img / vmax, 0, 1), cmap="gray", vmin=0, vmax=1,
                       origin="lower", interpolation="nearest")
-            ax.set_title(f"{wlong:.0f}°", fontsize=6)
+            ax.set_title(f"{wlong:.0f}°", fontsize=11)
             ax.axis("off")
         n = len(frames)
     else:
         for i in range(resolution):
             ax = axarr[i // n_cols][i % n_cols]
             _schematic_silhouette(ax, axes, aspect_deg, i * 360.0 / resolution)
-            ax.set_title(f"{i * 360.0 / resolution:.0f}°", fontsize=6)
+            ax.set_title(f"{i * 360.0 / resolution:.0f}°", fontsize=11)
             ax.set_xticks([]); ax.set_yticks([])
         n = resolution
 
@@ -118,7 +130,7 @@ def plot_model_mosaic(
         axarr[i // n_cols][i % n_cols].axis("off")
 
     fig.suptitle(f"Best-fit ellipsoid  a:b:c = {a:.2f}:{b:.2f}:{c:.2f}"
-                 f"   (aspect {aspect_deg:.0f}°)", fontsize=9)
+                 f"   (aspect {aspect_deg:.0f}°)", fontsize=15)
     fig.tight_layout(pad=0.3)
     return fig
 
@@ -146,17 +158,28 @@ def plot_aspect_curves(fit: SilhouetteFit, ax_amp=None, ax_mag=None):
     else:
         fig = ax_amp.get_figure()
 
-    ax_amp.errorbar(th, amps, yerr=samps, fmt="o", color="steelblue", capsize=3)
-    ax_amp.plot(grid, amplitude_model(fit.ab, fit.bc, gth), "-", color="firebrick",
-                label=f"a:b={fit.ab:.2f}, b:c={fit.bc:.2f}")
+    ax_amp.errorbar(th, amps, yerr=samps, fmt="o", color="steelblue",
+                    markersize=8, capsize=4, label="data")
+    ax_amp.plot(grid, amplitude_model(fit.ab, fit.bc, gth), "-", color="firebrick", lw=2)
+    # a:b and b:c shown as separate legend entries.
+    ab_err = fit.perr.get("ab")
+    bc_err = fit.perr.get("bc")
+    ab_lbl = f"a:b = {fit.ab:.2f}" + (f" ± {ab_err:.2f}" if ab_err else "")
+    bc_lbl = f"b:c = {fit.bc:.2f}" + (f" ± {bc_err:.2f}" if bc_err else "")
+    handles = [
+        Line2D([0], [0], marker="o", color="steelblue", lw=0, markersize=8, label="data"),
+        Line2D([0], [0], color="firebrick", lw=2, label=ab_lbl),
+        Line2D([0], [0], color="none", label=bc_lbl),
+    ]
+    ax_amp.legend(handles=handles, handlelength=1.6)
     ax_amp.set_xlabel("Aspect angle (deg)")
     ax_amp.set_ylabel("Amplitude (mag)")
     ax_amp.set_title("Amplitude–aspect")
-    ax_amp.legend(fontsize=8)
 
-    ax_mag.errorbar(th, means, yerr=smeans, fmt="o", color="seagreen", capsize=3)
+    ax_mag.errorbar(th, means, yerr=smeans, fmt="o", color="seagreen",
+                    markersize=8, capsize=4)
     ax_mag.plot(grid, mean_mag_model(fit.ab, fit.bc, gth, fit.zero_point), "-",
-                color="firebrick")
+                color="firebrick", lw=2)
     ax_mag.set_xlabel("Aspect angle (deg)")
     ax_mag.set_ylabel("Mean reduced mag")
     ax_mag.set_ylim(ax_mag.get_ylim()[::-1])   # mag increases downward
@@ -204,7 +227,7 @@ def plot_pole_map(fit: SilhouetteFit, ax=None, n_grid: int = 121):
     ax.set_xlabel("Ecliptic longitude (deg)")
     ax.set_ylabel("Ecliptic latitude (deg)")
     ax.set_title("Pole solution map")
-    ax.legend(fontsize=8, loc="lower right")
+    ax.legend(fontsize=12, loc="lower right")
     return fig
 
 
@@ -220,7 +243,7 @@ def plot_summary(fit: SilhouetteFit, resolution: int = 18, n_pixels: int = 96) -
         fig.text(0.5, 0.02,
                  f"Single apparition: a/b ≥ {fit.ab:.2f} (lower bound); "
                  f"pole and b/c undetermined",
-                 ha="center", fontsize=10, color="firebrick")
+                 ha="center", fontsize=15, color="firebrick")
         return fig
 
     a, b, c = fit.axes
@@ -248,13 +271,13 @@ def plot_summary(fit: SilhouetteFit, resolution: int = 18, n_pixels: int = 96) -
             ax = fig.add_subplot(mos[i // n_cols, i % n_cols])
             ax.imshow(np.clip(img / vmax, 0, 1), cmap="gray", vmin=0, vmax=1,
                       origin="lower", interpolation="nearest")
-            ax.set_title(f"{wlong:.0f}°", fontsize=8)
+            ax.set_title(f"{wlong:.0f}°", fontsize=12)
             ax.axis("off")
     else:
         for i in range(resolution):
             ax = fig.add_subplot(mos[i // n_cols, i % n_cols])
             _schematic_silhouette(ax, axes, th_med, i * 360.0 / resolution)
-            ax.set_title(f"{i * 360.0 / resolution:.0f}°", fontsize=8)
+            ax.set_title(f"{i * 360.0 / resolution:.0f}°", fontsize=12)
             ax.set_xticks([]); ax.set_yticks([])
 
     ax_amp = fig.add_subplot(gs[1, 0])
@@ -268,7 +291,7 @@ def plot_summary(fit: SilhouetteFit, resolution: int = 18, n_pixels: int = 96) -
         f"Silhouette  —  a:b:c = {a:.2f}:{b:.2f}:{axes[2]:.2f}   "
         f"pole ({fit.pole_lon:.0f}°, {fit.pole_lat:.0f}°)   "
         f"χ²ᵥ={fit.redchi2:.2f}   N={fit.n_apparitions}",
-        fontsize=11, y=0.99)
+        fontsize=18, y=0.99)
     return fig
 
 

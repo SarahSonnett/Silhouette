@@ -34,6 +34,14 @@ Silhouette groups the photometry into apparitions, reduces each to an amplitude
 and a mean reduced magnitude, then fits `(a/b, b/c, λₚ, βₚ)` jointly by weighted
 least squares over a grid of pole starting points.
 
+The amplitude–aspect and magnitude–aspect (mean-magnitude) relations and their
+simultaneous solution for a triaxial-ellipsoid pole and shape follow
+Michałowski (1993) [[1]](#references), building on the amplitude–magnitude method
+of Zappalà & Knežević (1984) [[2]](#references) and the pole/shape methodology
+reviewed in Magnusson et al. (1989) [[3]](#references); the photometric
+reduction uses the IAU H–G phase function of Bowell et al. (1989)
+[[4]](#references).
+
 ### What is and isn't recoverable
 
 | Apparitions | Result |
@@ -107,7 +115,7 @@ resolve_geometry(apps, target="433")               # file columns, else Horizons
 fit  = fit_shape(apps)
 
 print(fit.summary())
-save_summary(fit, "docs/images/fit_summary.png")
+save_summary(fit, "fit_summary.png")
 ```
 
 ### Command line
@@ -119,15 +127,50 @@ python fit_shape.py --infile photometry.txt --period 0.2194 \
 
 Writes `results/BestFitParameters.txt` and `results/fit_summary.png`.
 
-### Self-checking demo
+---
+
+## Worked example: asteroid (16152)
+
+The repo bundles a real single-apparition r-band light curve of **(16152)** in
+[`data/16152_2019_rp.txt`](data/16152_2019_rp.txt) (≈430 points, 2019 Aug–Sep;
+the same calibrated photometry used by [SpinDoc](https://github.com/SarahSonnett/SpinDoc)).
+
+```bash
+python example_16152.py
+```
+
+```
+Loaded 434 points; ecliptic columns present: False
+Grouped into 1 apparition(s).
+  span 50.8 d, amplitude 0.425 ± 0.019 mag
+
+Silhouette shape + pole fit
+  apparitions used : 1
+  a:b = 1.479
+  b:c = undetermined (single apparition)
+  a:b is a LOWER BOUND (equatorial aspect assumed)
+```
+
+Because this is a **single apparition**, Silhouette returns only an `a/b ≥ 1.48`
+lower bound — the pole and `b/c` are not recoverable from one viewing geometry.
+This is the correct, honest result, and it is consistent with an elongated body:
+the [DAMIT](https://damit.cuni.cz/projects/damit/?q=16152) convex models of
+(16152) give a spin pole near `(λ, β) ≈ (115°, 63°)` or `(305°, 68°)` with a
+22.936 h period, but those were derived from **many** apparitions of combined
+dense and sparse photometry. Reproducing a full Silhouette pole + `b/c` solution
+likewise requires multi-apparition coverage.
+
+### Full-capability demo (synthetic, multi-apparition)
+
+To exercise the complete pole + shape solution and produce the headline figure
+above:
 
 ```bash
 python example.py
 ```
 
-Synthesises a multi-apparition data set for a *known* ellipsoid and pole
-(`a:b=1.6, b:c=1.3, pole=(60°, 35°)`), then recovers them — producing the figure
-above.
+This synthesises a multi-apparition data set for a *known* ellipsoid and pole
+(`a:b=1.6, b:c=1.3, pole=(60°, 35°)`) and recovers them as a self-check.
 
 ---
 
@@ -161,6 +204,31 @@ The summary figure mirrors SpotLight's combined layout:
 ```bash
 python -m pytest tests/
 ```
+
+---
+
+## References
+
+1. Michałowski, T. (1993). *Poles, shapes, senses of rotation, and sidereal
+   periods of asteroids.* **Icarus** 106, 563–572.
+   [doi:10.1006/icar.1993.1193](https://doi.org/10.1006/icar.1993.1193)
+   — amplitude–aspect and magnitude–aspect relations for a triaxial ellipsoid,
+   solved simultaneously for pole and shape.
+2. Zappalà, V., & Knežević, Z. (1984). *Rotation axes of asteroids: Results for
+   14 objects.* **Icarus** 59, 436–455.
+   [doi:10.1016/0019-1035(84)90112-X](https://doi.org/10.1016/0019-1035(84)90112-X)
+   — the (improved) amplitude–magnitude method combining light-curve amplitude
+   and mean brightness.
+3. Magnusson, P., Barucci, M. A., Drummond, J. D., et al. (1989). *Determination
+   of pole orientations and shapes of asteroids.* In **Asteroids II**
+   (R. P. Binzel, T. Gehrels, M. S. Matthews, eds.), pp. 66–97. Univ. of Arizona
+   Press. [bibcode:1989aste.conf...66M](https://ui.adsabs.harvard.edu/abs/1989aste.conf...66M)
+   — review of photometric pole/shape determination methods.
+4. Bowell, E., Hapke, B., Domingue, D., et al. (1989). *Application of
+   photometric models to asteroids.* In **Asteroids II**, pp. 524–556. Univ. of
+   Arizona Press.
+   [bibcode:1989aste.conf..524B](https://ui.adsabs.harvard.edu/abs/1989aste.conf..524B)
+   — the IAU H–G magnitude system used for phase correction.
 
 ---
 
