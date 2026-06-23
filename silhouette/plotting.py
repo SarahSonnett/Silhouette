@@ -70,9 +70,9 @@ def plot_model_mosaic(
     fit: SilhouetteFit,
     aspect_deg: Optional[float] = None,
     phase_deg: float = 0.0,
-    n_cols: int = 9,
+    n_cols: int = 6,
     resolution: int = 18,
-    n_pixels: int = 64,
+    n_pixels: int = 96,
 ) -> plt.Figure:
     """Mosaic of the best-fit ellipsoid through one rotation.
 
@@ -94,7 +94,7 @@ def plot_model_mosaic(
 
     n_rows = (resolution + n_cols - 1) // n_cols
     fig, axarr = plt.subplots(n_rows, n_cols,
-                              figsize=(1.4 * n_cols, 1.4 * n_rows), squeeze=False)
+                              figsize=(2.3 * n_cols, 2.3 * n_rows), squeeze=False)
 
     if HAVE_SPOTLIGHT:
         frames = _spotlight_images(axes, aspect_deg, phase_deg, resolution, n_pixels)
@@ -212,7 +212,7 @@ def plot_pole_map(fit: SilhouetteFit, ax=None, n_grid: int = 121):
 # Combined summary figure
 # ---------------------------------------------------------------------------
 
-def plot_summary(fit: SilhouetteFit, resolution: int = 18, n_pixels: int = 64) -> plt.Figure:
+def plot_summary(fit: SilhouetteFit, resolution: int = 18, n_pixels: int = 96) -> plt.Figure:
     """One figure: ellipsoid mosaic on top, aspect curves + pole map below."""
     if fit.degenerate and fit.pole_lon is None:
         # Single apparition: mosaic + an a/b lower-bound annotation only.
@@ -224,7 +224,7 @@ def plot_summary(fit: SilhouetteFit, resolution: int = 18, n_pixels: int = 64) -
         return fig
 
     a, b, c = fit.axes
-    n_cols = 9
+    n_cols = 6
     n_img_rows = (resolution + n_cols - 1) // n_cols
 
     th_med = float(np.median(np.degrees(aspect_angle(
@@ -235,22 +235,26 @@ def plot_summary(fit: SilhouetteFit, resolution: int = 18, n_pixels: int = 64) -
         frames = _spotlight_images(axes, th_med, 0.0, resolution, n_pixels)
         vmax = max(img.max() for _, img in frames) or 1.0
 
-    fig = plt.figure(figsize=(13, 1.4 * n_img_rows + 8))
-    gs = gridspec.GridSpec(3, 2, figure=fig, height_ratios=[1.3, 2.4, 2.4],
-                           hspace=0.45, wspace=0.25)
+    # Mosaic cells are sized ~square (width 14/n_cols), and the lower diagnostic
+    # panels each get a generous fixed height.
+    fig = plt.figure(figsize=(14, 2.4 * n_img_rows + 9))
+    gs = gridspec.GridSpec(3, 2, figure=fig,
+                           height_ratios=[2.4 * n_img_rows, 4.2, 4.2],
+                           hspace=0.4, wspace=0.25)
     mos = gridspec.GridSpecFromSubplotSpec(n_img_rows, n_cols,
-                                           subplot_spec=gs[0, :], wspace=0.1, hspace=0.4)
+                                           subplot_spec=gs[0, :], wspace=0.08, hspace=0.35)
     if HAVE_SPOTLIGHT:
         for i, (wlong, img) in enumerate(frames):
             ax = fig.add_subplot(mos[i // n_cols, i % n_cols])
             ax.imshow(np.clip(img / vmax, 0, 1), cmap="gray", vmin=0, vmax=1,
                       origin="lower", interpolation="nearest")
-            ax.set_title(f"{wlong:.0f}°", fontsize=5)
+            ax.set_title(f"{wlong:.0f}°", fontsize=8)
             ax.axis("off")
     else:
         for i in range(resolution):
             ax = fig.add_subplot(mos[i // n_cols, i % n_cols])
             _schematic_silhouette(ax, axes, th_med, i * 360.0 / resolution)
+            ax.set_title(f"{i * 360.0 / resolution:.0f}°", fontsize=8)
             ax.set_xticks([]); ax.set_yticks([])
 
     ax_amp = fig.add_subplot(gs[1, 0])

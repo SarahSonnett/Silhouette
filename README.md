@@ -3,7 +3,7 @@
 **Silhouette** takes tabular asteroid light-curve photometry and analytically
 fits the triaxial axis ratios **a:b** and **b:c** together with the rotation
 **pole** ecliptic longitude and latitude. It is, in effect, the *inverse* of
-[SpotLight](../SpotLight): where SpotLight renders a synthetic light curve from a
+[SpotLight](https://github.com/SarahSonnett/SpotLight): where SpotLight renders a synthetic light curve from a
 known ellipsoid and viewing geometry, Silhouette recovers the ellipsoid and pole
 from observed brightness variations — and renders the result in a multi-panel
 figure modelled on SpotLight's combined output.
@@ -54,9 +54,9 @@ epoch/timing information, which Silhouette does not currently use.
 Silhouette imports two of its siblings when they are on the path, and falls back
 to a vendored minimal copy otherwise (so it always runs standalone):
 
-- **[SpotLight](../SpotLight)** — the forward triaxial renderer, used to draw the
+- **[SpotLight](https://github.com/SarahSonnett/SpotLight)** — the forward triaxial renderer, used to draw the
   best-fit ellipsoid mosaic.
-- **[SpinDoc](../SpinDoc)** — the Fourier light-curve model (`fourier`) and IAU
+- **[SpinDoc](https://github.com/SarahSonnett/SpinDoc)** — the Fourier light-curve model (`fourier`) and IAU
   H–G phase function (`HGfunction`), used during per-apparition reduction.
 
 Check `silhouette.HAVE_SPOTLIGHT` / `silhouette.HAVE_SPINDOC` to see what was
@@ -67,7 +67,7 @@ found.
 ## Installation
 
 ```bash
-git clone git@github.com:ssonnett/Silhouette.git
+git clone git@github.com:SarahSonnett/Silhouette.git
 cd Silhouette
 pip install -r requirements.txt
 ```
