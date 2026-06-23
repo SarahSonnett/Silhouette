@@ -20,6 +20,7 @@ Quick start
 
 from .io import Photometry, read_photometry
 from .apparitions import Apparition, group_apparitions, reduce_apparitions
+from .damit import DamitLightcurve, read_damit_lcs, damit_apparitions
 from .geometry import resolve_geometry, fetch_horizons_ecliptic
 from .model import (
     aspect_angle,
@@ -43,6 +44,7 @@ from ._compat import HAVE_SPOTLIGHT, HAVE_SPINDOC
 __all__ = [
     "Photometry", "read_photometry",
     "Apparition", "group_apparitions", "reduce_apparitions",
+    "DamitLightcurve", "read_damit_lcs", "damit_apparitions",
     "resolve_geometry", "fetch_horizons_ecliptic",
     "aspect_angle", "amplitude_model", "mean_mag_model", "mean_projected_area",
     "ab_lower_bound", "mirror_pole", "axes_from_ratios",

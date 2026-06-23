@@ -164,8 +164,8 @@ def plot_aspect_curves(fit: SilhouetteFit, ax_amp=None, ax_mag=None):
     # a:b and b:c shown as separate legend entries.
     ab_err = fit.perr.get("ab")
     bc_err = fit.perr.get("bc")
-    ab_lbl = f"a:b = {fit.ab:.2f}" + (f" ± {ab_err:.2f}" if ab_err else "")
-    bc_lbl = f"b:c = {fit.bc:.2f}" + (f" ± {bc_err:.2f}" if bc_err else "")
+    ab_lbl = f"a:b = {fit.ab:.2f}" + (f" ± {ab_err:.2f}" if ab_err and np.isfinite(ab_err) else "")
+    bc_lbl = f"b:c = {fit.bc:.2f}" + (f" ± {bc_err:.2f}" if bc_err and np.isfinite(bc_err) else "")
     handles = [
         Line2D([0], [0], marker="o", color="steelblue", lw=0, markersize=8, label="data"),
         Line2D([0], [0], color="firebrick", lw=2, label=ab_lbl),
@@ -175,6 +175,16 @@ def plot_aspect_curves(fit: SilhouetteFit, ax_amp=None, ax_mag=None):
     ax_amp.set_xlabel("Aspect angle (deg)")
     ax_amp.set_ylabel("Amplitude (mag)")
     ax_amp.set_title("Amplitude–aspect")
+
+    if ax_mag is None:
+        return fig
+    if not fit.used_meanmag:
+        # Amplitude-only fit (e.g. relative DAMIT photometry): no mean magnitude.
+        ax_mag.axis("off")
+        ax_mag.text(0.5, 0.5, "mean-magnitude method not used\n(relative photometry)",
+                    ha="center", va="center", fontsize=13, color="0.4",
+                    transform=ax_mag.transAxes)
+        return fig
 
     ax_mag.errorbar(th, means, yerr=smeans, fmt="o", color="seagreen",
                     markersize=8, capsize=4)
@@ -191,8 +201,12 @@ def plot_aspect_curves(fit: SilhouetteFit, ax_amp=None, ax_mag=None):
 # Pole sky map
 # ---------------------------------------------------------------------------
 
-def plot_pole_map(fit: SilhouetteFit, ax=None, n_grid: int = 121):
-    """chi^2 map over ecliptic (lon, lat) with the best + mirror poles marked."""
+def plot_pole_map(fit: SilhouetteFit, ax=None, n_grid: int = 121, reference_pole=None):
+    """chi^2 map over ecliptic (lon, lat) with the best + mirror poles marked.
+
+    ``reference_pole`` — optional ``(lon, lat)`` (e.g. a published DAMIT pole) —
+    is overplotted for comparison.
+    """
     apps = fit.apparitions
     lon = np.array([a.ecl_lon for a in apps])
     lat = np.array([a.ecl_lat for a in apps])
@@ -208,8 +222,11 @@ def plot_pole_map(fit: SilhouetteFit, ax=None, n_grid: int = 121):
         for j, ll in enumerate(L):
             th = aspect_angle(lon, lat, ll, bb)
             r = (amplitude_model(fit.ab, fit.bc, th) - amps) / samps
-            rm = (mean_mag_model(fit.ab, fit.bc, th, fit.zero_point) - means) / smeans
-            chi[i, j] = np.sum(r ** 2) + np.sum(rm ** 2)
+            c = np.sum(r ** 2)
+            if fit.used_meanmag:
+                rm = (mean_mag_model(fit.ab, fit.bc, th, fit.zero_point) - means) / smeans
+                c += np.sum(rm ** 2)
+            chi[i, j] = c
 
     if ax is None:
         fig, ax = plt.subplots(figsize=(7, 4))
@@ -219,11 +236,14 @@ def plot_pole_map(fit: SilhouetteFit, ax=None, n_grid: int = 121):
     im = ax.pcolormesh(L, B, np.log10(chi), cmap="viridis_r", shading="auto")
     fig.colorbar(im, ax=ax, label="log10 chi^2")
     if fit.pole_lon is not None:
-        ax.plot(fit.pole_lon, fit.pole_lat, "*", color="white", ms=16,
+        ax.plot(fit.pole_lon, fit.pole_lat, "*", color="white", ms=18,
                 markeredgecolor="k", label="best pole")
         if fit.mirror_pole is not None:
             ax.plot(fit.mirror_pole[0], fit.mirror_pole[1], "P", color="orange",
-                    ms=11, markeredgecolor="k", label="mirror")
+                    ms=12, markeredgecolor="k", label="mirror")
+    if reference_pole is not None:
+        ax.plot(reference_pole[0], reference_pole[1], "X", color="red", ms=13,
+                markeredgecolor="k", label="DAMIT")
     ax.set_xlabel("Ecliptic longitude (deg)")
     ax.set_ylabel("Ecliptic latitude (deg)")
     ax.set_title("Pole solution map")
@@ -235,8 +255,13 @@ def plot_pole_map(fit: SilhouetteFit, ax=None, n_grid: int = 121):
 # Combined summary figure
 # ---------------------------------------------------------------------------
 
-def plot_summary(fit: SilhouetteFit, resolution: int = 18, n_pixels: int = 96) -> plt.Figure:
-    """One figure: ellipsoid mosaic on top, aspect curves + pole map below."""
+def plot_summary(fit: SilhouetteFit, resolution: int = 18, n_pixels: int = 96,
+                 reference_pole=None) -> plt.Figure:
+    """One figure: ellipsoid mosaic on top, aspect curves + pole map below.
+
+    ``reference_pole`` — optional ``(lon, lat)`` published pole (e.g. DAMIT) —
+    is overplotted on the pole-solution map for comparison.
+    """
     if fit.degenerate and fit.pole_lon is None:
         # Single apparition: mosaic + an a/b lower-bound annotation only.
         fig = plot_model_mosaic(fit, resolution=resolution, n_pixels=n_pixels)
@@ -285,7 +310,7 @@ def plot_summary(fit: SilhouetteFit, resolution: int = 18, n_pixels: int = 96) -
     plot_aspect_curves(fit, ax_amp=ax_amp, ax_mag=ax_mag)
 
     ax_pole = fig.add_subplot(gs[2, :])
-    plot_pole_map(fit, ax=ax_pole)
+    plot_pole_map(fit, ax=ax_pole, reference_pole=reference_pole)
 
     fig.suptitle(
         f"Silhouette  —  a:b:c = {a:.2f}:{b:.2f}:{axes[2]:.2f}   "

@@ -12,7 +12,12 @@ The fit is **analytical**: it uses closed-form ellipsoid relations
 (amplitude–aspect and the mean-magnitude/projected-area method) and a light
 nonlinear least-squares solve — no convex inversion or shape facets.
 
-![Silhouette fit summary](docs/images/fit_summary.png)
+![Silhouette fit of (15) Eunomia](docs/images/eunomia_fit.png)
+
+*Above: Silhouette applied to 109 real DAMIT light curves of **(15) Eunomia**.
+From the amplitude–aspect relation alone it recovers a clearly elongated,
+retrograde spin (a:b≈1.7, b:c≈1.2, pole near β≈−74°) that lands ~28° from the
+DAMIT convex-inversion pole (red ✕) — see the [worked examples](#worked-examples).*
 
 ---
 
@@ -101,6 +106,12 @@ MJD        mag      merr   Rhelio  Delta   alpha  ecl_lon  ecl_lat
 ...
 ```
 
+**DAMIT light curves.** Silhouette also reads DAMIT's native multi-apparition
+light-curve export directly (`read_damit_lcs` / `damit_apparitions`). These
+relative-photometry files embed the asteroid-centric Sun/Earth ecliptic vectors,
+so the aspect geometry needs no ephemeris lookup — see the
+[Eunomia example](#1-multi-apparition-real--15-eunomia-vs-damit).
+
 ---
 
 ## Quick start
@@ -129,48 +140,80 @@ Writes `results/BestFitParameters.txt` and `results/fit_summary.png`.
 
 ---
 
-## Worked example: asteroid (16152)
+## Worked examples
 
-The repo bundles a real single-apparition r-band light curve of **(16152)** in
-[`data/16152_2019_rp.txt`](data/16152_2019_rp.txt) (≈430 points, 2019 Aug–Sep;
-the same calibrated photometry used by [SpinDoc](https://github.com/SarahSonnett/SpinDoc)).
+Three bundled examples bracket the method: a single apparition (lower bound
+only), a fully-sampled real object compared against DAMIT, and a synthetic
+ground-truth self-check.
+
+### 1. Multi-apparition, real — (15) Eunomia vs DAMIT
+
+[`data/15_eunomia_damit_lcs.txt`](data/15_eunomia_damit_lcs.txt) holds the **109
+light curves** DAMIT collected for **(15) Eunomia**, spanning 22 apparitions over
+decades. Each curve carries the asteroid-centric Sun/Earth ecliptic vectors, so
+the aspect geometry is read straight from the file. The photometry is relative,
+so only the amplitude–aspect observable is used.
+
+```bash
+python example_eunomia.py
+```
+
+```
+Read 109 DAMIT light curves -> 22 apparitions.
+  a:b = 1.680
+  b:c = 1.234
+  pole (lon, lat) = (94.8, -73.6) deg
+  mirror pole     = (274.8, 73.6) deg [degenerate]
+  reduced chi^2   = 1.15
+DAMIT pole: λ=3°, β=-67°  (P=6.083 h)
+closest Silhouette pole is 28° from DAMIT; recovered axis ratios a:b=1.68, b:c=1.23
+```
+
+This is the headline figure above. Silhouette recovers the correct **rotation
+sense** (retrograde), the approximate **pole latitude** (β≈−74° vs DAMIT −67°),
+and **axis ratios** matching Eunomia's known elongation — with the pole landing
+~28° from the DAMIT convex-inversion solution. That offset is expected: the
+closed-form triaxial-ellipsoid method is a fast first estimate, while full
+light-curve inversion (DAMIT) refines it. At a near-polar latitude the longitude
+is intrinsically weakly constrained, so the χ² valley is broad in longitude —
+the DAMIT pole (red ✕) sits inside the same low-χ² basin as the best fit.
+
+### 2. Single-apparition, real — (16152)
+
+[`data/16152_2019_rp.txt`](data/16152_2019_rp.txt) is a real single-apparition
+r-band light curve of **(16152)** (≈430 points, 2019 Aug–Sep; the same calibrated
+photometry used by [SpinDoc](https://github.com/SarahSonnett/SpinDoc)).
 
 ```bash
 python example_16152.py
 ```
 
 ```
-Loaded 434 points; ecliptic columns present: False
 Grouped into 1 apparition(s).
   span 50.8 d, amplitude 0.425 ± 0.019 mag
-
-Silhouette shape + pole fit
-  apparitions used : 1
   a:b = 1.479
   b:c = undetermined (single apparition)
   a:b is a LOWER BOUND (equatorial aspect assumed)
 ```
 
-Because this is a **single apparition**, Silhouette returns only an `a/b ≥ 1.48`
-lower bound — the pole and `b/c` are not recoverable from one viewing geometry.
-This is the correct, honest result, and it is consistent with an elongated body:
-the [DAMIT](https://damit.cuni.cz/projects/damit/?q=16152) convex models of
-(16152) give a spin pole near `(λ, β) ≈ (115°, 63°)` or `(305°, 68°)` with a
-22.936 h period, but those were derived from **many** apparitions of combined
-dense and sparse photometry. Reproducing a full Silhouette pole + `b/c` solution
-likewise requires multi-apparition coverage.
+With one apparition Silhouette returns only an `a/b ≥ 1.48` lower bound — the
+pole and `b/c` are not recoverable from a single viewing geometry. This is the
+correct, honest result, consistent with an elongated body: the
+[DAMIT](https://damit.cuni.cz/projects/damit/?q=16152) models of (16152) give a
+pole near `(115°, 63°)`/`(305°, 68°)`, P = 22.936 h, but only from **many**
+apparitions. The contrast with Eunomia makes the data requirement explicit.
 
-### Full-capability demo (synthetic, multi-apparition)
-
-To exercise the complete pole + shape solution and produce the headline figure
-above:
+### 3. Synthetic ground-truth self-check
 
 ```bash
 python example.py
 ```
 
-This synthesises a multi-apparition data set for a *known* ellipsoid and pole
-(`a:b=1.6, b:c=1.3, pole=(60°, 35°)`) and recovers them as a self-check.
+Synthesises a multi-apparition data set for a *known* ellipsoid and pole
+(`a:b=1.6, b:c=1.3, pole=(60°, 35°)`) and recovers them, writing
+`docs/images/fit_summary.png`. Because the data are generated from the same
+geometric-scattering model the fitter assumes, recovery is essentially exact —
+isolating the estimator from real-world model error.
 
 ---
 
@@ -181,9 +224,11 @@ The summary figure mirrors SpotLight's combined layout:
 1. **Ellipsoid mosaic** — the best-fit shape rendered through one rotation (via
    SpotLight when available).
 2. **Amplitude–aspect** — observed amplitudes with the analytical model curve.
-3. **Mean magnitude–aspect** — the projected-area brightness variation and fit.
-4. **Pole solution map** — χ² over the ecliptic sky, with the best pole and its
-   degenerate mirror marked.
+3. **Mean magnitude–aspect** — the projected-area brightness variation and fit
+   (omitted automatically for relative photometry, where no absolute magnitude
+   exists).
+4. **Pole solution map** — χ² over the ecliptic sky, with the best pole, its
+   degenerate mirror, and an optional reference (e.g. DAMIT) pole marked.
 
 ---
 
@@ -196,6 +241,9 @@ The summary figure mirrors SpotLight's combined layout:
 - Robust pole determination needs several apparitions well spread in ecliptic
   longitude; sparse coverage yields non-unique solutions — inspect the candidate
   poles and the pole map.
+- Recovered poles are accurate to roughly ~15–30° and axis ratios to the right
+  magnitude; this analytical method is a fast first estimate, not a replacement
+  for full convex/SAGE light-curve inversion.
 
 ---
 
@@ -229,6 +277,19 @@ python -m pytest tests/
    Arizona Press.
    [bibcode:1989aste.conf..524B](https://ui.adsabs.harvard.edu/abs/1989aste.conf..524B)
    — the IAU H–G magnitude system used for phase correction.
+5. Ďurech, J., Sidorin, V., & Kaasalainen, M. (2010). *DAMIT: a database of
+   asteroid models.* **Astronomy & Astrophysics** 513, A46.
+   [doi:10.1051/0004-6361/200912693](https://doi.org/10.1051/0004-6361/200912693)
+   — source of the (15) Eunomia and (16152) reference models and the bundled
+   Eunomia light-curve data.
+
+## Acknowledgements
+
+This work makes use of the **DAMIT** database (https://damit.cuni.cz), operated
+by the Astronomical Institute of Charles University. The bundled (15) Eunomia
+light curves and the (16152) reference parameters are drawn from DAMIT; please
+cite Ďurech et al. (2010) and the underlying model references (e.g. Kaasalainen
+et al. 2002 for Eunomia) when reusing them.
 
 ---
 

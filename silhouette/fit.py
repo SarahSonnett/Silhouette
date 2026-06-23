@@ -57,26 +57,30 @@ class SilhouetteFit:
     n_apparitions: int = 0
     redchi2: float = float("nan")
     degenerate: bool = False
+    used_meanmag: bool = True                  # was the mean-magnitude observable fit?
     notes: List[str] = field(default_factory=list)
     apparitions: List[Apparition] = field(default_factory=list)
 
     def summary(self) -> str:
+        import math
+
+        def err(key):
+            v = self.perr.get(key)
+            return v if (v is not None and math.isfinite(v)) else None
+
         lines = [
             "Silhouette shape + pole fit",
             f"  apparitions used : {self.n_apparitions}",
-            f"  a:b = {self.ab:.3f}" + (f" +/- {self.perr.get('ab', float('nan')):.3f}"
-                                        if 'ab' in self.perr else ""),
+            f"  a:b = {self.ab:.3f}" + (f" +/- {err('ab'):.3f}" if err('ab') else ""),
         ]
         if self.degenerate and self.pole_lon is None:
             lines.append(f"  b:c = undetermined (single apparition)")
             lines.append(f"  a:b is a LOWER BOUND (equatorial aspect assumed)")
         else:
-            lines.append(f"  b:c = {self.bc:.3f}" + (f" +/- {self.perr.get('bc', float('nan')):.3f}"
-                                                     if 'bc' in self.perr else ""))
+            lines.append(f"  b:c = {self.bc:.3f}" + (f" +/- {err('bc'):.3f}" if err('bc') else ""))
             lines.append(f"  pole (lon, lat) = ({self.pole_lon:.1f}, {self.pole_lat:.1f}) deg"
-                         + (f"  +/- ({self.perr.get('pole_lon', float('nan')):.1f}, "
-                            f"{self.perr.get('pole_lat', float('nan')):.1f})"
-                            if 'pole_lat' in self.perr else ""))
+                         + (f"  +/- ({err('pole_lon'):.1f}, {err('pole_lat'):.1f})"
+                            if err('pole_lat') and err('pole_lon') else ""))
             if self.mirror_pole is not None:
                 lines.append(f"  mirror pole     = ({self.mirror_pole[0]:.1f}, "
                              f"{self.mirror_pole[1]:.1f}) deg [degenerate]")
@@ -140,7 +144,7 @@ def fit_shape(
         return SilhouetteFit(
             ab=lb, bc=float("nan"), axes=(lb, 1.0, float("nan")),
             pole_lon=None, pole_lat=None, mirror_pole=None, zero_point=0.0,
-            n_apparitions=1, degenerate=True,
+            n_apparitions=1, degenerate=True, used_meanmag=False,
             notes=["single apparition: a/b is a lower bound at equatorial aspect; "
                    "pole and b/c are undetermined"],
             apparitions=list(apparitions),
@@ -230,6 +234,7 @@ def fit_shape(
         n_apparitions=n,
         redchi2=redchi2,
         degenerate=degenerate,
+        used_meanmag=use_meanmag,
         notes=notes,
         apparitions=list(apparitions),
     )
