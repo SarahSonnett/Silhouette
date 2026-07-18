@@ -32,6 +32,25 @@ from .model import (
     axes_from_ratios,
 )
 from .fit import SilhouetteFit, PoleSolution, fit_shape
+from .shapes import (
+    ConvexShape,
+    fibonacci_sphere,
+    real_sph_harm_basis,
+    ellipsoid_gaussian_image,
+    minkowski_support,
+    deeve_axes,
+)
+from .forward import (
+    convex_brightness,
+    convex_lightcurve,
+    projected_area,
+    ecliptic_to_body_matrix,
+    SCATTERING_LAWS,
+    geometric,
+    lambert,
+    lommel_seeliger,
+    ls_lambert,
+)
 from .plotting import (
     plot_model_mosaic,
     plot_aspect_curves,
@@ -49,6 +68,12 @@ __all__ = [
     "aspect_angle", "amplitude_model", "mean_mag_model", "mean_projected_area",
     "ab_lower_bound", "mirror_pole", "axes_from_ratios",
     "SilhouetteFit", "PoleSolution", "fit_shape",
+    # shape inversion (Phase 1a)
+    "ConvexShape", "fibonacci_sphere", "real_sph_harm_basis",
+    "ellipsoid_gaussian_image", "minkowski_support", "deeve_axes",
+    "convex_brightness", "convex_lightcurve", "projected_area",
+    "ecliptic_to_body_matrix", "SCATTERING_LAWS",
+    "geometric", "lambert", "lommel_seeliger", "ls_lambert",
     "plot_model_mosaic", "plot_aspect_curves", "plot_pole_map",
     "plot_summary", "save_summary",
     "HAVE_SPOTLIGHT", "HAVE_SPINDOC",
