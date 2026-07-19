@@ -249,7 +249,77 @@ Three conclusions:
 
 ---
 
-## Reuse of sibling repositories
+## 5. Runtime
+
+Measured on a 14-core Apple Silicon laptop, Python 3.11, **one BLAS thread per
+worker** (so a pool of N workers uses N cores).
+
+| Operation | Cost |
+|---|---|
+| Forward light curve | **~2 µs per photometric point** (10 000 pts in 18 ms) |
+| Single inversion, 210 pts, `lmax=3` | **0.3 s** |
+| Single inversion, 700 pts, `lmax=4` | **2.8 s** |
+| Single inversion, 700 pts, `lmax=6` | **6.1 s** |
+| Single inversion, 9 868 pts, `lmax=4` (real Eunomia) | **~56 s** |
+| Minkowski reconstruction → DEEVE, 150 normals | **5 s** |
+| Minkowski reconstruction → DEEVE, 300 normals | **10 s** |
+| Any geophysics call | **≲3 ms** |
+| Full test suite (103 tests) | **~68 s** |
+
+### Where the time actually goes
+
+The fit itself is cheap because convexity makes the forward model a weighted sum
+over the Gaussian image — no rendering. Consequently:
+
+> **Reconstructing the polyhedron costs more than fitting it.** The Minkowski
+> solve (2–10 s) is never needed during the fit; it runs *once* at the end, only
+> because volume and inertia — and hence the DEEVE axis ratios — require an
+> actual shape. If you only need the pole and χ², you never pay it.
+
+Scaling rules of thumb:
+
+- Inversion is **roughly linear in the number of photometric points** and grows
+  with the parameter count (`(lmax+1)² + 2`), since the Jacobian is numerical:
+  going `lmax` 4 → 6 roughly doubles the cost.
+- Multistart: `n_starts × single_fit / n_workers`.
+- Period scan: `n_periods × n_starts × single_fit / n_workers`.
+
+### Worked cases
+
+- **Eunomia convex inversion** — 106 curves, 9 868 points, 30 pole starts on
+  6 workers: **376 s** (~6 min).
+- **Sampling/precision study** — 108 grid cells × 25 starts ≈ 2 700 inversions at
+  reduced settings (`lmax=3`, 120 normals) on 9 workers: a few minutes.
+
+### Planning a period scan
+
+This is the one step that can become genuinely expensive, because the required
+step shrinks as the baseline grows:
+
+```
+step      = P² / (T · oversample)
+alias gap = P² / T
+```
+
+For Eunomia (`P` = 0.2534 d, `T` = 68 yr) the alias gap is **0.22 s** — which is
+why DAMIT quotes the period to 10⁻⁶ h. Scanning a long baseline blindly is not
+viable: at ~56 s per fit, even a few hundred trial periods times a pole grid runs
+to days. In practice:
+
+1. Get a period from a fast method first (e.g. SpinDoc, or a short-baseline
+   subset) to better than `P²/T`.
+2. Scan **inside** the alias window at reduced settings (`lmax=2–3`, ~120
+   normals, a handful of pole starts) — ~0.3 s per fit.
+3. Refine the shape once at full `lmax` and a dense pole grid.
+
+**Spend cores on starts and trial periods, not on longer fits.** Increasing
+`max_nfev` from 200 to 600 was measured to change nothing (those are true local
+minima), whereas going from 6 to 25 pole starts decided whether the correct
+solution was found at all.
+
+---
+
+## 6. Reuse of sibling repositories
 
 Silhouette imports two siblings when available, falling back to vendored copies
 so it always runs standalone:
