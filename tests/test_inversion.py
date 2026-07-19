@@ -160,3 +160,44 @@ def test_multistart_picks_lowest_chi2(synthetic_lightcurves):
     chis = [c[2] for c in res.candidates]
     assert chis == sorted(chis)
     assert np.isclose(res.redchi2, chis[0])
+
+
+# ---------------------------------------------------------------- period scan
+
+def test_period_grid_step_keeps_phase_coherent():
+    """Step must satisfy dP = P^2 / (T * oversample)."""
+    from silhouette.inversion import period_search_grid
+    p, baseline, over = 0.25, 50.0, 4.0
+    grid = period_search_grid(p, baseline, half_width_frac=0.01, oversample=over)
+    assert np.isclose(np.diff(grid).max(), p ** 2 / (baseline * over), rtol=0.2)
+    assert grid.min() < p < grid.max()
+
+
+def test_period_scan_recovers_known_period():
+    """Scanning inside the alias-free window must find the true period."""
+    from silhouette.inversion import period_search_grid, scan_period
+    rng = np.random.default_rng(7)
+    truth = ConvexShape.from_ellipsoid(*TRUE_AXES, 200)
+    lcs = []
+    for k, lon in enumerate([0, 25, 50]):
+        earth = _dir(lon, rng.uniform(-5, 5))
+        sun = _dir(lon + 8, rng.uniform(-5, 5))
+        t = np.sort(rng.uniform(0, PERIOD, 25)) + k * 25.0
+        flux = convex_lightcurve(truth, t, sun, earth, *TRUE_POLE, PERIOD,
+                                 phi0=0.7, t0=0.0, phot_func=ls_lambert)
+        sigma = 0.015 * flux.mean()
+        lcs.append(LightCurveObs(t, flux + rng.normal(0, sigma, flux.size),
+                                 np.full(flux.size, sigma), sun, earth, relative=True))
+
+    baseline = max(l.times.max() for l in lcs) - min(l.times.min() for l in lcs)
+    alias = PERIOD ** 2 / baseline          # one-rotation alias spacing
+    grid = period_search_grid(PERIOD * 1.0008, baseline,
+                              half_width_frac=0.0018, oversample=8)
+    assert (grid.max() - grid.min()) < 2 * alias      # stay inside the alias window
+
+    res = scan_period(lcs, grid, pole_grid=[(35.0, 10.0), (200.0, -40.0)],
+                      n_workers=1, lmax=3, n_normals=110, max_nfev=100)
+    step = np.diff(grid).max()
+    assert abs(res.best_period - PERIOD) <= 1.5 * step
+    assert res.redchi2.shape == grid.shape
+    assert np.nanmax(res.redchi2) > np.nanmin(res.redchi2)   # landscape has structure

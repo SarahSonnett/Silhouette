@@ -43,10 +43,15 @@ from .shapes import (
 from .inversion import (
     LightCurveObs, InversionResult, invert_convex,
     invert_convex_multistart, cluster_pole_families, PoleFamily, default_pole_grid,
+    PeriodScanResult, period_search_grid, scan_period,
 )
 from .geophysics import (
     min_density_cohesionless, required_cohesion, is_stable_cohesionless,
     shedding_limit_density, propagate_axis_uncertainty, DensityConstraint,
+)
+from .geoplots import (
+    plot_cohesion_vs_density, plot_spin_barrier, plot_shape_sensitivity,
+    plot_strength_summary,
 )
 from .forward import (
     convex_brightness,
@@ -88,6 +93,9 @@ __all__ = [
     # geophysics (Phase 2)
     "min_density_cohesionless", "required_cohesion", "is_stable_cohesionless",
     "shedding_limit_density", "propagate_axis_uncertainty", "DensityConstraint",
+    "plot_cohesion_vs_density", "plot_spin_barrier", "plot_shape_sensitivity",
+    "plot_strength_summary",
+    "PeriodScanResult", "period_search_grid", "scan_period",
     "plot_model_mosaic", "plot_aspect_curves", "plot_pole_map",
     "plot_summary", "save_summary",
     "HAVE_SPOTLIGHT", "HAVE_SPINDOC",

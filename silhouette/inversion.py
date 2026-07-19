@@ -357,6 +357,111 @@ def invert_convex_multistart(
     return best
 
 
+# ---------------------------------------------------------------------------
+# Phase 1b: period scan
+# ---------------------------------------------------------------------------
+
+@dataclass
+class PeriodScanResult:
+    """chi-squared as a function of trial rotation period."""
+
+    periods: np.ndarray
+    redchi2: np.ndarray
+    best_period: float
+    best: "InversionResult"
+
+    def summary(self) -> str:
+        finite = np.isfinite(self.redchi2)
+        return "\n".join([
+            "Silhouette period scan",
+            f"  trial periods    : {self.periods.size} "
+            f"({self.periods.min():.6f} - {self.periods.max():.6f})",
+            f"  best period      : {self.best_period:.7f}",
+            f"  best reduced chi2: {self.best.redchi2:.3f}",
+            f"  runner-up chi2   : "
+            f"{np.sort(self.redchi2[finite])[1]:.3f}" if finite.sum() > 1 else "",
+        ])
+
+
+def period_search_grid(p_center: float, baseline: float,
+                       half_width_frac: float = 0.01,
+                       oversample: float = 4.0) -> np.ndarray:
+    """Trial periods spaced finely enough to keep rotational phase coherent.
+
+    Over a data baseline ``T`` a period error ``dP`` accumulates a phase drift of
+    ``T·dP/P²`` rotations. Requiring that to stay below ``1/oversample`` gives the
+    step ``dP = P² / (T · oversample)``.
+
+    This is why period scanning is expensive for long baselines: the required
+    number of trials grows linearly with ``T``. It is also why it is the only
+    part of the pipeline that genuinely wants many cores.
+    """
+    step = p_center ** 2 / (baseline * oversample)
+    half = half_width_frac * p_center
+    n = max(int(np.ceil(2.0 * half / step)) + 1, 3)
+    return np.linspace(p_center - half, p_center + half, n)
+
+
+def _period_worker(payload):
+    lightcurves, period, pole_grid, kwargs = payload
+    try:
+        return period, invert_convex_multistart(
+            lightcurves, period=period, pole_grid=pole_grid, n_workers=1, **kwargs)
+    except Exception:
+        return period, None
+
+
+def scan_period(
+    lightcurves: Sequence[LightCurveObs],
+    periods: Sequence[float],
+    pole_grid: Optional[Sequence[Tuple[float, float]]] = None,
+    n_workers: int = 1,
+    **kwargs,
+) -> PeriodScanResult:
+    """Invert at each trial period and return the chi-squared landscape.
+
+    Each trial period is an independent inversion (itself a small pole
+    multistart), so the scan is embarrassingly parallel — this is where extra
+    cores pay off. ``n_workers`` bounds the pool; BLAS threading is pinned to one
+    thread per worker so N workers use N cores.
+
+    Period landscapes are extremely spiky: local optimisation cannot find the
+    period, which is why this is a scan rather than a fitted parameter.
+
+    .. note::
+       As with :func:`invert_convex_multistart`, ``n_workers > 1`` requires the
+       caller to live in an importable module with a ``__main__`` guard.
+    """
+    periods = np.asarray(list(periods), dtype=float)
+    grid = list(pole_grid) if pole_grid is not None else default_pole_grid(
+        n_lon=4, lats=(-60.0, 0.0, 60.0))
+
+    payloads = [(list(lightcurves), float(p), grid, kwargs) for p in periods]
+
+    if n_workers > 1:
+        for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+                    "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS"):
+            os.environ.setdefault(var, "1")
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(max_workers=n_workers) as pool:
+            out = list(pool.map(_period_worker, payloads))
+    else:
+        out = [_period_worker(p) for p in payloads]
+
+    by_period = {p: r for p, r in out}
+    chi = np.array([by_period[p].redchi2 if by_period[p] is not None else np.nan
+                    for p in periods])
+    if not np.any(np.isfinite(chi)):
+        raise RuntimeError("no trial period converged")
+
+    ibest = int(np.nanargmin(chi))
+    return PeriodScanResult(periods=periods, redchi2=chi,
+                            best_period=float(periods[ibest]),
+                            best=by_period[periods[ibest]])
+
+
 __all__ = ["LightCurveObs", "InversionResult", "invert_convex",
            "invert_convex_multistart", "default_pole_grid",
+           "cluster_pole_families", "PoleFamily",
+           "PeriodScanResult", "period_search_grid", "scan_period",
            "ellipsoid_coeffs", "sh_project"]

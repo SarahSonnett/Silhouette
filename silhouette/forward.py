@@ -187,11 +187,25 @@ def convex_lightcurve(shape: ConvexShape, times, sun_vecs, earth_vecs,
     alphas = np.arccos(np.clip(np.sum(s_hat * e_hat, axis=1), -1.0, 1.0))
     phis = rotation_phase(times, period, phi0, t0)
 
-    out = np.empty(times.size)
-    for i, phi in enumerate(phis):
-        rot = ecliptic_to_body_matrix(pole_lon, pole_lat, phi)
-        out[i] = convex_brightness(shape, rot @ s_hat[i], rot @ e_hat[i],
-                                   phot_func=phot_func, arg=arg, alpha=alphas[i])
+    # Vectorised over epochs: the pole part of the rotation is constant, so
+    # apply it once and fold the per-epoch spin R_z(phi) in analytically.
+    pole_rot = _ry(np.radians(pole_lat) - np.pi / 2.0) @ _rz(-np.radians(pole_lon))
+    cos_p, sin_p = np.cos(phis), np.sin(phis)
+
+    def _spin(vecs):
+        u = vecs @ pole_rot.T
+        return np.column_stack([u[:, 0] * cos_p - u[:, 1] * sin_p,
+                                u[:, 0] * sin_p + u[:, 1] * cos_p,
+                                u[:, 2]])
+
+    mu0 = shape.normals @ _spin(s_hat).T          # (n_normals, n_epochs)
+    mu = shape.normals @ _spin(e_hat).T
+    lit = (mu > 0.0) & (mu0 > 0.0)
+
+    contrib = phot_func(np.where(lit, mu0, 0.0), np.where(lit, mu, 0.0),
+                        alphas[None, :], arg)
+    out = np.sum(shape.areas[:, None] * np.where(lit, contrib, 0.0), axis=0)
+
     if phase_func is not None:
         out = out * phase_func(alphas)
     return out
