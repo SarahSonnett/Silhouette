@@ -165,6 +165,7 @@ def invert_convex(
     phot_arg=None,
     closure_weight: float = 50.0,
     max_nfev: int = 400,
+    fit_pole: bool = True,
     verbose: int = 0,
 ) -> InversionResult:
     """Fit a convex shape + pole + rotation phase to observed light curves.
@@ -196,7 +197,11 @@ def invert_convex(
                            areas=np.exp(basis @ coeffs) * solid), coeffs
 
     def unpack(p):
-        return p[:n_coef - 1], p[n_coef - 1], p[n_coef], p[n_coef + 1]
+        """-> (free shape coeffs, pole_lon, pole_lat, phi0)."""
+        if fit_pole:
+            return p[:n_coef - 1], p[n_coef - 1], p[n_coef], p[n_coef + 1]
+        # pole held at pole0; only shape and rotation phase are free
+        return p[:n_coef - 1], pole0[0], pole0[1], p[n_coef - 1]
 
     def residuals(p):
         free_c, plon, plat, ph0 = unpack(p)
@@ -212,9 +217,14 @@ def invert_convex(
         out.append(closure_weight * np.sqrt(n_data) * closure)
         return np.concatenate(out)
 
-    p0 = np.concatenate([c_seed[1:], [pole0[0], pole0[1], phi0]])
-    lo = np.concatenate([np.full(n_coef - 1, -np.inf), [-np.inf, -90.0, -np.inf]])
-    hi = np.concatenate([np.full(n_coef - 1, np.inf), [np.inf, 90.0, np.inf]])
+    if fit_pole:
+        p0 = np.concatenate([c_seed[1:], [pole0[0], pole0[1], phi0]])
+        lo = np.concatenate([np.full(n_coef - 1, -np.inf), [-np.inf, -90.0, -np.inf]])
+        hi = np.concatenate([np.full(n_coef - 1, np.inf), [np.inf, 90.0, np.inf]])
+    else:
+        p0 = np.concatenate([c_seed[1:], [phi0]])
+        lo = np.full(n_coef, -np.inf)
+        hi = np.full(n_coef, np.inf)
 
     res = least_squares(residuals, p0, bounds=(lo, hi), method="trf",
                         max_nfev=max_nfev, verbose=verbose)
@@ -229,7 +239,7 @@ def invert_convex(
                                   phot_func=phot_func, arg=phot_arg)
         scales.append(_optimal_scale(model, lc.flux, lc.sigma) if lc.relative else 1.0)
 
-    n_params = n_coef - 1 + 3
+    n_params = n_coef - 1 + (3 if fit_pole else 1)
     chi2 = float(2.0 * res.cost)
     dof = max(n_data - n_params, 1)
     return InversionResult(
@@ -240,6 +250,41 @@ def invert_convex(
         closure=shape.closure_residual(),
         success=bool(res.success), message=str(res.message), scales=scales,
     )
+
+
+@dataclass
+class PoleFamily:
+    """A cluster of starting poles that converged to the same solution."""
+
+    pole_lon: float
+    pole_lat: float
+    redchi2: float
+    n_starts: int
+
+
+def _sep_deg(l1, b1, l2, b2):
+    l1, b1, l2, b2 = map(np.radians, (l1, b1, l2, b2))
+    return float(np.degrees(np.arccos(np.clip(
+        np.sin(b1) * np.sin(b2) + np.cos(b1) * np.cos(b2) * np.cos(l1 - l2), -1.0, 1.0))))
+
+
+def cluster_pole_families(candidates, tol_deg: float = 15.0) -> List[PoleFamily]:
+    """Group multistart candidates into distinct pole solutions.
+
+    Convex inversion routinely yields several *statistically indistinguishable*
+    poles. Reporting only the lowest-chi-squared one overstates the precision of
+    the solution, so this collapses the candidate list into families (greedy,
+    best-chi-squared first) that can be reported together.
+    """
+    families: List[PoleFamily] = []
+    for lon, lat, chi in sorted(candidates, key=lambda c: c[2]):
+        for fam in families:
+            if _sep_deg(lon, lat, fam.pole_lon, fam.pole_lat) < tol_deg:
+                fam.n_starts += 1
+                break
+        else:
+            families.append(PoleFamily(lon, lat, chi, 1))
+    return families
 
 
 def default_pole_grid(n_lon: int = 6, lats: Sequence[float] = (-70, -35, 0, 35, 70)):

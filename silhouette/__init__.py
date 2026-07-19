@@ -40,6 +40,14 @@ from .shapes import (
     minkowski_support,
     deeve_axes,
 )
+from .inversion import (
+    LightCurveObs, InversionResult, invert_convex,
+    invert_convex_multistart, cluster_pole_families, PoleFamily, default_pole_grid,
+)
+from .geophysics import (
+    min_density_cohesionless, required_cohesion, is_stable_cohesionless,
+    shedding_limit_density, propagate_axis_uncertainty, DensityConstraint,
+)
 from .forward import (
     convex_brightness,
     convex_lightcurve,
@@ -74,6 +82,12 @@ __all__ = [
     "convex_brightness", "convex_lightcurve", "projected_area",
     "ecliptic_to_body_matrix", "SCATTERING_LAWS",
     "geometric", "lambert", "lommel_seeliger", "ls_lambert",
+    "LightCurveObs", "InversionResult", "invert_convex",
+    "invert_convex_multistart", "cluster_pole_families", "PoleFamily",
+    "default_pole_grid",
+    # geophysics (Phase 2)
+    "min_density_cohesionless", "required_cohesion", "is_stable_cohesionless",
+    "shedding_limit_density", "propagate_axis_uncertainty", "DensityConstraint",
     "plot_model_mosaic", "plot_aspect_curves", "plot_pole_map",
     "plot_summary", "save_summary",
     "HAVE_SPOTLIGHT", "HAVE_SPINDOC",

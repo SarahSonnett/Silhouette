@@ -37,6 +37,7 @@ import numpy as np  # noqa: E402
 from silhouette.damit import read_damit_lcs  # noqa: E402
 from silhouette.inversion import (  # noqa: E402
     LightCurveObs,
+    cluster_pole_families,
     default_pole_grid,
     invert_convex_multistart,
 )
@@ -46,7 +47,15 @@ DATA = os.path.join(HERE, "data", "15_eunomia_damit_lcs.txt")
 
 PERIOD_H = 6.082753          # DAMIT sidereal period
 DAMIT_POLE = (3.0, -67.0)
-FRAC_SIGMA = 0.02            # assumed uniform photometric uncertainty
+
+# Assumed uniform photometric uncertainty. This is an *assumption*, not a
+# measurement: DAMIT ships no per-point errors. 2% is a plausible floor for
+# heterogeneous archival relative photometry (sub-1% is hard to achieve in
+# practice). Note that chi^2 ~ 1 only confirms the assumed sigma matches the
+# data-model scatter -- it is not an independent validation of the photometry.
+# Only the *relative* weighting between curves affects the fitted shape, so use
+# --frac-sigma to check that conclusions are insensitive to this choice.
+DEFAULT_FRAC_SIGMA = 0.02
 
 
 def angular_sep(p1, p2):
@@ -68,13 +77,15 @@ def main():
                     help="parallel pole starts (default leaves 4 cores free)")
     ap.add_argument("--lmax", type=int, default=4, help="shape expansion degree")
     ap.add_argument("--n-normals", type=int, default=180)
+    ap.add_argument("--frac-sigma", type=float, default=DEFAULT_FRAC_SIGMA,
+                    help="assumed uniform fractional photometric uncertainty")
     args = ap.parse_args()
 
     curves = read_damit_lcs(DATA)
     dense = sorted([c for c in curves
                     if c.intensity.size >= 8 and c.span_days <= 1.5],
                    key=lambda c: c.epoch_mid)
-    lcs = [LightCurveObs(c.jd, c.intensity, FRAC_SIGMA * c.intensity.mean(),
+    lcs = [LightCurveObs(c.jd, c.intensity, args.frac_sigma * c.intensity.mean(),
                          c.sun, c.earth, relative=not c.calibrated)
            for c in dense]
 
@@ -100,12 +111,30 @@ def main():
           f"(mirror allowed)")
     print(f"              a:b = {ab:.3f}, b:c = {bc:.3f}")
 
-    good = [c for c in res.candidates if c[2] < 2.0 * res.redchi2]
-    print(f"\nmulti-modality: {len(res.candidates)} starts converged, "
-          f"{len(good)} within 2x the best chi^2")
-    print("top candidates (lon, lat, chi2_nu, offset from DAMIT):")
-    for lon, lat, chi in res.candidates[:6]:
-        print(f"   ({lon:6.1f}, {lat:6.1f})   {chi:7.2f}   {offset_to_damit(lon, lat):5.1f} deg")
+    # Distinct pole solutions, not just the single lowest-chi^2 start. Several
+    # families are typically statistically indistinguishable, and quoting only
+    # the winner would overstate how well the pole is determined.
+    families = cluster_pole_families(res.candidates, tol_deg=15.0)
+    best_chi = families[0].redchi2
+    print(f"\n{len(res.candidates)} starts converged into {len(families)} distinct "
+          f"pole families (15 deg tolerance):")
+    print(f"   {'pole (lon, lat)':>20s} {'chi2_nu':>9s} {'starts':>7s} "
+          f"{'d(chi2)':>8s} {'DAMIT':>7s}")
+    for fam in families[:8]:
+        flag = "  <-- indistinguishable from best" if fam.redchi2 < 1.05 * best_chi else ""
+        print(f"   ({fam.pole_lon:8.1f},{fam.pole_lat:7.1f}) {fam.redchi2:9.2f} "
+              f"{fam.n_starts:7d} {fam.redchi2 - best_chi:8.2f} "
+              f"{offset_to_damit(fam.pole_lon, fam.pole_lat):6.1f}°{flag}")
+
+    degenerate = [f for f in families if f.redchi2 < 1.05 * best_chi]
+    if len(degenerate) > 1:
+        print(f"\nNOTE: {len(degenerate)} pole families fit equally well "
+              f"(within 5% in chi^2). The pole is genuinely degenerate here; "
+              f"the closest to DAMIT is "
+              f"{min(offset_to_damit(f.pole_lon, f.pole_lat) for f in degenerate):.1f} deg away.")
+        print("Because b:c is recovered *through* the aspect angle, a degenerate "
+              "pole implies a correspondingly uncertain b:c -- propagate this into "
+              "any density/strength constraint rather than quoting one shape.")
 
 
 if __name__ == "__main__":
