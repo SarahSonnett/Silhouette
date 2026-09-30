@@ -10,3 +10,6 @@ build/
 venv/
 .idea/
 .ipynb_checkpoints/
+
+# trained scorer model: regenerable from calibrate_scorer.py (recipe, not binary)
+silhouette/models/*.pkl

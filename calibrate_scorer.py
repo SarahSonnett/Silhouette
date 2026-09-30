@@ -69,30 +69,36 @@ def cmd_train(args):
 
     from silhouette.calibration import (
         DEFAULT_MODEL_PATH, FEATURES, brier, classical_accept, fit_score_model,
-        reliability, upgrade_legacy_s2, yield_curve,
+        add_derived_features, reliability, upgrade_legacy_s2, yield_curve,
     )
 
-    df = upgrade_legacy_s2(load_table())
+    df = add_derived_features(upgrade_legacy_s2(load_table()))
     df = df.replace([np.inf, -np.inf], np.nan).dropna(subset=FEATURES + ["correct"])
     inj = df["inj"].astype(int).values
     uniq = np.unique(inj)
     rng = np.random.default_rng(args.seed)
-    test_inj = set(rng.choice(uniq, size=max(1, int(0.2 * uniq.size)), replace=False))
-    is_test = np.array([i in test_inj for i in inj])
-    tr, te = df[~is_test], df[is_test]
-    print(f"{len(df)} candidate rows from {uniq.size} injections "
-          f"({len(tr)} train / {len(te)} test rows; {len(test_inj)} test injections)")
+    print(f"{len(df)} candidate rows from {uniq.size} injections")
     print(f"found-at-all rate (truth among candidates): "
           f"{df.groupby('inj')['correct'].max().mean():.3f}")
 
-    Xtr, ytr = tr[FEATURES].values, tr["correct"].values
-    model = fit_score_model(Xtr, ytr, tr["inj"].astype(int).values, seed=args.seed)
-    p_te = model.predict_from_matrix(te[FEATURES].values)
-    y_te = te["correct"].values
+    # Nested, injection-grouped CV: each outer fold's model (with its own inner
+    # CV for the isotonic map) predicts injections it never saw, so every
+    # injection gets an honest out-of-sample probability and the evaluation
+    # uses the whole set rather than one small holdout.
+    from sklearn.model_selection import GroupKFold
+    X_all, y_all = df[FEATURES].values, df["correct"].values
+    p_oof = np.full(len(df), np.nan)
+    for k, (tr_i, te_i) in enumerate(GroupKFold(n_splits=args.folds).split(X_all, y_all, inj)):
+        m_k = fit_score_model(X_all[tr_i], y_all[tr_i], inj[tr_i], seed=args.seed)
+        p_oof[te_i] = m_k.predict_from_matrix(X_all[te_i])
+        if k == 0:
+            model = m_k                       # used only for permutation importance
+            imp_rows = te_i
+    te = df.copy()
+    y_te = y_all
 
-    # ---- baselines on the same test rows ------------------------------------
-    te = te.copy()
-    te["p_cal"] = p_te
+    # ---- baselines on the same rows -----------------------------------------
+    te["p_cal"] = p_oof
     te["p_rank0"] = (te["rank"] == 0).astype(float)
     base = {
         "calibrated scorer": te["p_cal"].values,
@@ -154,18 +160,81 @@ def cmd_train(args):
         print(f"  yield at false rate <= {target:.0%}: calibrated "
               f"{yield_at(target, fr, yl):.3f}, uncalibrated {yield_at(target, fr_u, yl_u):.3f}")
 
+    # ---- head-to-head at the classical rule's own false rate, with bootstrap CIs
+    per_obj = pd.DataFrame({"inj": list(groups.keys()), "p": top_p, "ok": top_ok})
+    per_obj["n_app"] = [groups[i]["n_app"].iloc[0] for i in per_obj["inj"]]
+    per_obj["found"] = [groups[i]["correct"].max() for i in per_obj["inj"]]
+    cl_rows = {i: classical_accept(g.to_dict("records"), allow_mirror=False)
+               for i, g in groups.items()}
+    per_obj["cl_acc"] = [cl_rows[i] is not None for i in per_obj["inj"]]
+    per_obj["cl_ok"] = [bool(cl_rows[i] is not None and cl_rows[i]["correct"])
+                        for i in per_obj["inj"]]
+    cl_fr = classical["strict (no rival within 10%)"]["false_rate"] or 0.0
+    # threshold giving (at most) the classical false rate on the full test set
+    thr_match = None
+    for t_, f_ in zip(thr, fr):
+        if np.isfinite(f_) and f_ <= cl_fr:
+            thr_match = float(t_)
+            break
+    thr5 = next((float(t_) for t_, f_ in zip(thr, fr) if np.isfinite(f_) and f_ <= 0.05), 0.99)
+
+    def boot_ci(stat, n_boot=500):
+        vals = []
+        for _ in range(n_boot):
+            smp = per_obj.sample(len(per_obj), replace=True, random_state=int(rng.integers(1e9)))
+            vals.append(stat(smp))
+        return [float(np.nanpercentile(vals, 16)), float(np.nanpercentile(vals, 84))]
+
+    def cal_yield(df_, t_):
+        return float(((df_["p"] >= t_) & (df_["ok"] == 1)).mean())
+
+    def cal_false(df_, t_):
+        acc = df_["p"] >= t_
+        return float((acc & (df_["ok"] == 0)).sum() / acc.sum()) if acc.sum() else np.nan
+
+    head = {
+        "classical_strict": {"yield": float(per_obj["cl_ok"].mean()),
+                             "yield_ci68": boot_ci(lambda d: d["cl_ok"].mean()),
+                             "false_rate": cl_fr},
+        "calibrated_at_classical_false_rate": None if thr_match is None else {
+            "threshold": thr_match, "yield": cal_yield(per_obj, thr_match),
+            "yield_ci68": boot_ci(lambda d: cal_yield(d, thr_match)),
+            "false_rate": cal_false(per_obj, thr_match)},
+        "calibrated_at_5pct": {"threshold": thr5, "yield": cal_yield(per_obj, thr5),
+                               "yield_ci68": boot_ci(lambda d: cal_yield(d, thr5)),
+                               "false_rate": cal_false(per_obj, thr5),
+                               "false_rate_ci68": boot_ci(lambda d: cal_false(d, thr5))},
+    }
+    rej = per_obj[~per_obj["cl_acc"]]
+    head["classical_rejected"] = {
+        "n": int(len(rej)),
+        "mean_p_top": float(rej["p"].mean()) if len(rej) else None,
+        "frac_top_correct": float(rej["ok"].mean()) if len(rej) else None,
+        "n_p_top_gt_0.5": int((rej["p"] > 0.5).sum()),
+        "frac_correct_when_p_gt_0.5": float(rej[rej["p"] > 0.5]["ok"].mean())
+        if (rej["p"] > 0.5).any() else None,
+    }
+    by_app = []
+    for napp, g in per_obj.groupby("n_app"):
+        by_app.append({"n_app": int(napp), "n": int(len(g)),
+                       "found_at_all": float(g["found"].mean()),
+                       "classical_yield": float(g["cl_ok"].mean()),
+                       "classical_accepted": int(g["cl_acc"].sum()),
+                       "classical_wrong": int((g["cl_acc"] & ~g["cl_ok"]).sum()),
+                       "calibrated_yield_at_5pct_thr": cal_yield(g, thr5),
+                       "calibrated_accepted": int((g["p"] >= thr5).sum()),
+                       "calibrated_wrong": int(((g["p"] >= thr5) & (g["ok"] == 0)).sum()),
+                       "mean_p_top": float(g["p"].mean()),
+                       "top_correct": float(g["ok"].mean())})
+    print("head-to-head:", json.dumps(head, indent=1))
+    print(f"{'n_app':>5s} {'N':>4s} {'found':>6s} {'classical':>10s} {'cl.wrong':>8s} "
+          f"{'calib@5%':>9s} {'cal.wrong':>9s} {'<p_top>':>8s} {'top ok':>7s}")
+    for r in by_app:
+        print(f"{r['n_app']:5d} {r['n']:4d} {r['found_at_all']:6.2f} {r['classical_yield']:10.2f} "
+              f"{r['classical_wrong']:8d} {r['calibrated_yield_at_5pct_thr']:9.2f} "
+              f"{r['calibrated_wrong']:9d} {r['mean_p_top']:8.2f} {r['top_correct']:7.2f}")
+
     # ---- permutation importance on test ------------------------------------
-    class _Wrap:
-        def __init__(self, m):
-            self.m = m
-
-        def fit(self, X, y):
-            return self
-
-        def predict_proba(self, X):
-            p = self.m.predict_from_matrix(X)
-            return np.column_stack([1 - p, p])
-
     from sklearn.base import BaseEstimator, ClassifierMixin
 
     class _Est(BaseEstimator, ClassifierMixin):
@@ -183,7 +252,7 @@ def cmd_train(args):
         def predict(self, X):
             return (self.m.predict_from_matrix(X) >= 0.5).astype(int)
 
-    pi = permutation_importance(_Est(model), te[FEATURES].values, y_te,
+    pi = permutation_importance(_Est(model), X_all[imp_rows], y_all[imp_rows],
                                 scoring="neg_brier_score", n_repeats=8,
                                 random_state=args.seed, n_jobs=1)
     order = np.argsort(pi.importances_mean)[::-1]
@@ -199,7 +268,7 @@ def cmd_train(args):
         ax.plot(mp, fy, label=f"{name} (Brier {metrics[name]['brier']:.3f})", **style)
     ax.set_xlabel("predicted P(correct)")
     ax.set_ylabel("observed fraction correct")
-    ax.set_title("Reliability on held-out injections")
+    ax.set_title("Reliability (out-of-sample, nested grouped CV)")
     ax.legend(fontsize=8, loc="upper left")
 
     ax = axes[1]
@@ -250,16 +319,22 @@ def cmd_train(args):
         a.legend(fontsize=8)
         if col == "noise_frac":
             a.set_xscale("log")
-    fig2.suptitle("Held-out injections: does the predicted probability track reality?")
+    fig2.suptitle("Out-of-sample: does the predicted probability track reality?")
     fig2.tight_layout()
     fig2.savefig(os.path.join(OUT, "scorer_vs_data.png"), dpi=130)
     fig2.savefig(os.path.join(HERE, "docs", "images", "scorer_vs_data.png"), dpi=130)
 
-    model.meta.update({"test_metrics": metrics, "classical": classical,
-                       "n_test_injections": n_obj})
-    model.save(DEFAULT_MODEL_PATH)
+    # ---- ship a model trained on ALL injections (metrics above are the
+    # out-of-sample nested-CV ones)
+    final = fit_score_model(df[FEATURES].values, df["correct"].values,
+                            df["inj"].astype(int).values, seed=args.seed)
+    final.meta.update({"oof_metrics": metrics, "classical": classical,
+                       "head_to_head": head, "n_eval_injections": n_obj, "eval": "nested grouped CV",
+                       "settings": "calibration.FAST_INV + FAST_GRID, n_boot=10, tol 20 deg"})
+    final.save(DEFAULT_MODEL_PATH)
     with open(os.path.join(OUT, "metrics.json"), "w") as fh:
-        json.dump({"metrics": metrics, "classical": classical,
+        json.dump({"metrics": metrics, "classical": classical, "head_to_head": head,
+                   "by_n_app": by_app,
                    "yield_at_false_rate": {str(t): {"calibrated": yield_at(t, fr, yl),
                                                     "uncalibrated": yield_at(t, fr_u, yl_u)}
                                            for t in (0.01, 0.02, 0.05, 0.10)},
@@ -281,6 +356,7 @@ def main():
     r.add_argument("--hours", type=float, default=None, help="stop cleanly after this long")
     t = sub.add_parser("train", help="train + evaluate the calibrated classifier")
     t.add_argument("--seed", type=int, default=0)
+    t.add_argument("--folds", type=int, default=5, help="outer grouped-CV folds")
     args = ap.parse_args()
     {"run": cmd_run, "train": cmd_train}[args.cmd](args)
 

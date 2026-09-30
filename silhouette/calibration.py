@@ -60,6 +60,7 @@ FEATURES = [
     "period_rank", "n_candidates", "n_periods", "basin_frac", "redchi2_min",
     "redchi2_ratio", "neff_factor", "abs_lat", "elongation", "flattening",
     "has_mirror", "has_antipode", "sep_from_best", "rot_coverage",
+    "rival_ratio", "rival_ratio_nomirror",
 ]
 
 # Fast pipeline settings used inside the calibration loop. Real targets can use
@@ -272,6 +273,35 @@ def upgrade_legacy_s2(df):
     return pd.DataFrame(out)
 
 
+def add_derived_features(df):
+    """Add features introduced after a CSV was written, from its raw columns.
+
+    ``rival_ratio`` / ``rival_ratio_nomirror`` (added 2026-09-30) follow
+    :func:`silhouette.scoring.rival_ratios` exactly, per injection.
+    """
+    if "rival_ratio" in df.columns:
+        return df
+    out = df.copy()
+    rr = np.full(len(out), np.nan)
+    rrn = np.full(len(out), np.nan)
+    pos = {k: i for i, k in enumerate(out.index)}
+    for _, g in out.groupby("inj"):
+        recs = g[["cand_redchi2", "cand_period", "cand_lon", "cand_lat"]].values
+        for k, (chi, per, lon, lat) in zip(g.index, recs):
+            a, b = [10.0], [10.0]
+            for k2, (chi2, per2, lon2, lat2) in zip(g.index, recs):
+                if k2 == k:
+                    continue
+                r = min(chi2 / max(chi, 1e-12), 10.0)
+                a.append(r)
+                if not (per2 == per and _sep_deg(lon2, lat2, lon + 180.0, lat) < 25.0):
+                    b.append(r)
+            rr[pos[k]], rrn[pos[k]] = min(a), min(b)
+    out["rival_ratio"] = rr
+    out["rival_ratio_nomirror"] = rrn
+    return out
+
+
 def _inject_safe(seed):
     try:
         return seed, inject_one(seed), None
@@ -481,6 +511,6 @@ def yield_curve(p_best: np.ndarray, correct_best: np.ndarray, n_total: int,
 __all__ = [
     "FEATURES", "FAST_INV", "FAST_GRID", "Truth", "GeometryPlan", "ScoreModel",
     "irregular_shape", "random_truth", "random_geometry", "render", "inject_one",
-    "run_injections", "upgrade_legacy_s2", "fit_score_model", "load_default_model", "DEFAULT_MODEL_PATH",
+    "run_injections", "upgrade_legacy_s2", "add_derived_features", "fit_score_model", "load_default_model", "DEFAULT_MODEL_PATH",
     "reliability", "brier", "classical_accept", "yield_curve",
 ]

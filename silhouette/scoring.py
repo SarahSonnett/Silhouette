@@ -526,6 +526,27 @@ def data_features(lightcurves: Sequence[LightCurveObs],
     }
 
 
+def rival_ratios(c: Candidate, candidates: Sequence[Candidate], cap: float = 10.0
+                 ) -> Tuple[float, float]:
+    """Closest rival's ``χ²_ν`` relative to this candidate's (the classical margin).
+
+    Returns ``(all rivals, rivals other than its (λ+180°, β) mirror)``. The
+    classical DAMIT-style rule accepts a solution when this ratio is ≥ 1.1;
+    here it is a feature, not a cut.
+    """
+    ratios, ratios_nm = [cap], [cap]
+    for o in candidates:
+        if o is c:
+            continue
+        r = min(o.redchi2 / max(c.redchi2, 1e-12), cap)
+        ratios.append(r)
+        mirror = (o.period == c.period and
+                  _sep_deg(o.pole_lon, o.pole_lat, c.pole_lon + 180.0, c.pole_lat) < 25.0)
+        if not mirror:
+            ratios_nm.append(r)
+    return float(min(ratios)), float(min(ratios_nm))
+
+
 def candidate_features(candidates: Sequence[Candidate],
                        lightcurves: Sequence[LightCurveObs],
                        noise_diag: Optional[Dict[str, float]] = None,
@@ -557,6 +578,7 @@ def candidate_features(candidates: Sequence[Candidate],
                    for o in candidates)
         others = [o for o in candidates if o is not c]
         best_other = min((o.chi2 for o in others), default=np.inf)
+        rr, rr_nm = rival_ratios(c, candidates)
         feats = dict(df)
         feats.update({
             "dchi2_scaled": f * (c.chi2 - best.chi2) / s2,
@@ -578,6 +600,8 @@ def candidate_features(candidates: Sequence[Candidate],
             "has_antipode": float(anti),
             "sep_from_best": _sep_deg(c.pole_lon, c.pole_lat, best.pole_lon, best.pole_lat),
             "rot_coverage": float(np.median([min(s / c.period, 1.5) for s in span])),
+            "rival_ratio": rr,
+            "rival_ratio_nomirror": rr_nm,
         })
         c.features = {k: float(v) for k, v in feats.items()}
 
