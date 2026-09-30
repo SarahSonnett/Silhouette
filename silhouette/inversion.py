@@ -103,6 +103,9 @@ class InversionResult:
     scales: List[float] = field(default_factory=list)
     # (lon, lat, redchi2) for every start of a multistart run, best first
     candidates: List[Tuple[float, float, float]] = field(default_factory=list)
+    # every converged start of a multistart run (full results), best first;
+    # the solution scorer needs whole fits, not just their poles
+    all_fits: List["InversionResult"] = field(default_factory=list, repr=False)
 
     def axis_ratios(self) -> Tuple[float, float]:
         """``(a/b, b/c)`` of the DEEVE — the handoff to the geophysics module."""
@@ -166,6 +169,7 @@ def invert_convex(
     closure_weight: float = 50.0,
     max_nfev: int = 400,
     fit_pole: bool = True,
+    coeffs0: Optional[np.ndarray] = None,
     verbose: int = 0,
 ) -> InversionResult:
     """Fit a convex shape + pole + rotation phase to observed light curves.
@@ -180,12 +184,20 @@ def invert_convex(
     n_normals : number of Gaussian-image directions
     seed_axes : axis ratios used to build the starting shape
     closure_weight : strength of the ``Σ a_i n_i = 0`` penalty
+    coeffs0 : optional full SH coefficient vector to start from (warm start,
+        e.g. refitting a known solution on bootstrap-resampled data); must match
+        ``lmax``. Its ``l = 0`` term is the one held fixed.
     """
     normals, solid = fibonacci_sphere(n_normals)
     basis = real_sph_harm_basis(lmax, normals)
     n_coef = basis.shape[1]
 
-    c_seed = ellipsoid_coeffs(*seed_axes, lmax, normals, solid, basis)
+    if coeffs0 is not None:
+        c_seed = np.asarray(coeffs0, dtype=float)
+        if c_seed.size != n_coef:
+            raise ValueError(f"coeffs0 has {c_seed.size} terms; lmax={lmax} needs {n_coef}")
+    else:
+        c_seed = ellipsoid_coeffs(*seed_axes, lmax, normals, solid, basis)
     c0_fixed = float(c_seed[0])                      # size is degenerate: hold it
 
     t0 = float(min(np.min(lc.times) for lc in lightcurves))
@@ -354,6 +366,7 @@ def invert_convex_multistart(
     good.sort(key=lambda r: r.redchi2)
     best = good[0]
     best.candidates = [(r.pole_lon, r.pole_lat, r.redchi2) for r in good]
+    best.all_fits = good
     return best
 
 
