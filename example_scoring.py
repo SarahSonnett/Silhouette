@@ -99,7 +99,8 @@ def main():
     fsun, fearth = simple_orbit_geometry(future, **ORBIT)
     top = rep.candidates[:4]
     recs = recommend_observations(top, future, fsun, fearth, n_points=40,
-                                  sigma_mag=0.015, min_elongation_deg=90.0)
+                                  sigma_mag=0.015, model_sigma_mag=rep.noise["model_rms_mag"],
+                                  min_elongation_deg=90.0)
     print("\nBest epochs to observe next (days since first night; one night, 40 pts, 0.015 mag):")
     print(format_recommendations(recs, top=6, epoch_fmt=lambda e: f"day {e:.0f}"))
 

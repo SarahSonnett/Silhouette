@@ -106,6 +106,7 @@ def recommend_observations(
     probabilities: Optional[Sequence[float]] = None,
     n_points: int = 40,
     sigma_mag: float = 0.02,
+    model_sigma_mag: float = 0.0,
     min_elongation_deg: float = 60.0,
     max_phase_deg: Optional[float] = None,
     n_phase: int = 72,
@@ -119,6 +120,9 @@ def recommend_observations(
         vectors in AU (e.g. from :func:`horizons_geometry`)
     probabilities : override the candidates' own ``probability`` values
     n_points, sigma_mag : what one night of data would look like
+    model_sigma_mag : how well the candidates reproduce the *existing* data
+        (``ScoreReport.noise['model_rms_mag']``); added in quadrature, because
+        predictions are no better than the fits they come from
     min_elongation_deg, max_phase_deg : observability cuts (elongation needs
         true AU vectors; if the vectors are unit length it is skipped)
 
@@ -138,6 +142,7 @@ def recommend_observations(
     elong = (np.full(alpha.size, np.nan) if unit_like
              else solar_elongation_deg(sun_vecs, earth_vecs))
 
+    sig2 = sigma_mag ** 2 + model_sigma_mag ** 2
     out: List[EpochScore] = []
     for ep, s, e, a, el in zip(epochs, sun_vecs, earth_vecs, alpha, elong):
         if np.isfinite(el) and el < min_elongation_deg:
@@ -150,7 +155,7 @@ def recommend_observations(
         for i in range(n):
             for j in range(i + 1, n):
                 d = shift_invariant_rms(curves[i], curves[j])
-                dchi[i, j] = dchi[j, i] = n_points * d * d / sigma_mag ** 2
+                dchi[i, j] = dchi[j, i] = n_points * d * d / sig2
         w = np.outer(p, p)
         iu = np.triu_indices(n, 1)
         den = float(w[iu].sum())

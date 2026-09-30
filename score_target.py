@@ -74,7 +74,7 @@ def main():
     periods = spindoc_periods(args.period_h, baseline_of(lcs), n_alias=args.n_alias,
                               harmonics=args.harmonics)
     model = load_default_model()
-    print(f"{len(lcs)} nights, {sum(len(l) for l in lcs)} points, baseline "
+    print(f"{len(lcs)} light curves ({args.group} grouping), {sum(len(l) for l in lcs)} points, baseline "
           f"{baseline_of(lcs):.1f} d; trial periods (h): {np.round(periods * 24, 5)}")
     print("calibration model:", "loaded" if model is not None else "none (uncalibrated)")
 
@@ -103,11 +103,12 @@ def main():
         jd, sun, earth = horizons_geometry(args.target, args.plan_start, args.plan_stop,
                                            args.plan_step)
         recs = recommend_observations(rep.candidates[:5], jd, sun, earth,
-                                      n_points=args.plan_points, sigma_mag=args.plan_sigma)
+                                      n_points=args.plan_points, sigma_mag=args.plan_sigma,
+                                      model_sigma_mag=rep.noise["model_rms_mag"])
         from astropy.time import Time
         fmt = lambda e: Time(e, format="jd").iso[:10]  # noqa: E731
         print(f"\nBest dates for one more night ({args.plan_points} pts at "
-              f"{args.plan_sigma} mag):")
+              f"{args.plan_sigma} mag, plus {rep.noise['model_rms_mag']:.3f} mag model error):")
         print(format_recommendations(recs, top=10, epoch_fmt=fmt))
         summary["recommendations"] = [{"date": fmt(r.epoch), "p_true_after": r.p_true_after,
                                        "expected_dchi2": r.expected_dchi2,

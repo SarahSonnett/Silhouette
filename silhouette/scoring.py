@@ -288,6 +288,22 @@ def residual_autocorrelation(fit: InversionResult,
     return num / den if den > 0 else 0.0
 
 
+def model_rms_mag(fit: InversionResult, lightcurves: Sequence[LightCurveObs],
+                  **model_kw) -> float:
+    """RMS of the fit residuals in magnitudes — how well the model predicts at all.
+
+    The recommender adds this in quadrature to the planned photometric error:
+    a model that misses today's data by 0.08 mag cannot be trusted to predict
+    tomorrow's to 0.02 mag, however good the photometry.
+    """
+    res = []
+    for lc, m in zip(lightcurves, model_flux(fit, lightcurves, **model_kw)):
+        ok = (lc.flux > 0) & (m > 0)
+        res.append(2.5 * np.log10(lc.flux[ok] / m[ok]))
+    r = np.concatenate(res) if res else np.array([0.0])
+    return float(np.sqrt(np.mean(r * r)))
+
+
 def neff_factor(rho: float) -> float:
     """Effective-sample-size factor ``(1 − ρ)/(1 + ρ)`` for AR(1)-like residuals."""
     return float(np.clip((1.0 - rho) / (1.0 + rho), 0.05, 1.0))
@@ -299,15 +315,22 @@ class PopulationPrior:
 
     ``pole_lat_logpdf(lat_deg)`` — e.g. a LEADER/PyLEADER pole-latitude
     distribution (β folded or not); ``elongation_logpdf(ab)`` — an a/b
-    distribution. Candidates are points, so an isotropic pole prior is simply
-    flat here.
+    distribution; ``flattening_logpdf(bc)`` — e.g. :func:`principal_axis_logprior`.
+    Candidates are points, so an isotropic pole prior is simply flat here.
+
+    Priors change the likelihood weights (and the features built from them),
+    so a calibrated model trained without a prior is not calibrated for runs
+    with one; use priors with the uncalibrated scorer or retrain.
     """
 
     pole_lat_logpdf: Optional[Callable[[float], float]] = None
     elongation_logpdf: Optional[Callable[[float], float]] = None
+    flattening_logpdf: Optional[Callable[[float], float]] = None
 
     def __call__(self, c: Candidate) -> float:
         lp = 0.0
+        if self.flattening_logpdf is not None:
+            lp += float(self.flattening_logpdf(c.flattening))
         if self.pole_lat_logpdf is not None:
             lp += float(self.pole_lat_logpdf(c.pole_lat))
         if self.elongation_logpdf is not None:
@@ -326,6 +349,16 @@ def noise_scale(redchi2_min: float) -> float:
     uniqueness threshold scale-free.
     """
     return float(max(redchi2_min, 0.05))
+
+
+def principal_axis_logprior(bc: float, width: float = 0.05) -> float:
+    """Soft penalty on ``b/c < 1``: a relaxed rotator spins about its short axis.
+
+    Single-apparition convex fits often come out elongated along the spin axis
+    (b/c proxy < 1) because nothing constrains the c axis; this prior says such
+    shapes are physically implausible for a non-tumbling body.
+    """
+    return 0.0 if bc >= 1.0 else float(-0.5 * ((1.0 - bc) / width) ** 2)
 
 
 def likelihood_weights(candidates: Sequence[Candidate],
@@ -359,7 +392,8 @@ def likelihood_weights(candidates: Sequence[Candidate],
     w /= w.sum()
     for c, wi in zip(candidates, w):
         c.like_weight = float(wi)
-    return {"s2": s2, "rho": rho, "neff_factor": f}
+    return {"s2": s2, "rho": rho, "neff_factor": f,
+            "model_rms_mag": model_rms_mag(best.fit, lightcurves, **model_kw)}
 
 
 # ---------------------------------------------------------------------------
@@ -567,12 +601,13 @@ class ScoreReport:
                 else "UNCALIBRATED likelihood x bootstrap weight")
         lines = [
             "Silhouette solution scores",
-            f"  data: {int(self.data['n_points'])} pts, {int(self.data['n_lc'])} curves, "
+            f"  data: {int(self.data['n_points'])} pts, {int(self.data['n_lc'])} light curves, "
             f"{int(self.data['n_app'])} apparitions, ecl-lon coverage "
             f"{self.data['lon_coverage']:.0f} deg, phase {self.data['phase_min']:.0f}-"
             f"{self.data['phase_max']:.0f} deg",
             f"  noise model: s^2={self.noise['s2']:.2f}, residual rho={self.noise['rho']:.2f}"
-            f" -> N_eff factor {self.noise['neff_factor']:.2f}",
+            f" -> N_eff factor {self.noise['neff_factor']:.2f}; best-fit rms "
+            f"{self.noise.get('model_rms_mag', float('nan')):.3f} mag",
             f"  probability column: {kind}",
             f"  {'#':>2s} {'period':>12s} {'pole (lon, lat)':>17s} {'chi2_nu':>8s} "
             f"{'a/b~':>5s} {'b/c~':>5s} {'L-wt':>6s} {'boot':>5s} {'prob':>6s}",
@@ -662,8 +697,9 @@ def score_solutions(
 
 __all__ = [
     "Candidate", "PopulationPrior", "ScoreReport", "spin_vector_pole",
+    "principal_axis_logprior",
     "projected_areas", "shape_proxies", "alias_periods", "baseline_of",
     "find_candidates", "likelihood_weights", "residual_autocorrelation",
     "neff_factor", "noise_scale", "bootstrap_stability", "data_features", "candidate_features",
-    "longitude_coverage", "combine_uncalibrated", "score_solutions", "model_flux",
+    "longitude_coverage", "combine_uncalibrated", "model_rms_mag", "score_solutions", "model_flux",
 ]
