@@ -268,7 +268,7 @@ def cmd_train(args):
         ax.plot(mp, fy, label=f"{name} (Brier {metrics[name]['brier']:.3f})", **style)
     ax.set_xlabel("predicted P(correct)")
     ax.set_ylabel("observed fraction correct")
-    ax.set_title("Reliability (out-of-sample, nested grouped CV)")
+    ax.set_title("Reliability (out-of-sample)")
     ax.legend(fontsize=8, loc="upper left")
 
     ax = axes[1]
@@ -323,6 +323,43 @@ def cmd_train(args):
     fig2.tight_layout()
     fig2.savefig(os.path.join(OUT, "scorer_vs_data.png"), dpi=130)
     fig2.savefig(os.path.join(HERE, "docs", "images", "scorer_vs_data.png"), dpi=130)
+
+    # ---- identifiability map: how often is a unique, correct answer reachable?
+    per_obj["noise"] = [groups[i]["noise_frac"].iloc[0] for i in per_obj["inj"]]
+    per_obj["lonc"] = [groups[i]["lon_coverage"].iloc[0] for i in per_obj["inj"]]
+    nbins = [0.0, 0.01, 0.02, 1.0]
+    nlab = ["<1%", "1-2%", ">2%"]
+    per_obj["nbin"] = pd.cut(per_obj["noise"], nbins, labels=nlab)
+    apps = sorted(per_obj["n_app"].unique())
+    grids = {k: np.full((len(nlab), len(apps)), np.nan) for k in ("found", "ok", "p", "n")}
+    for a_i, a in enumerate(apps):
+        for n_i, nl in enumerate(nlab):
+            g = per_obj[(per_obj["n_app"] == a) & (per_obj["nbin"] == nl)]
+            if len(g):
+                grids["found"][n_i, a_i] = g["found"].mean()
+                grids["ok"][n_i, a_i] = g["ok"].mean()
+                grids["p"][n_i, a_i] = g["p"].mean()
+                grids["n"][n_i, a_i] = len(g)
+    fig3, ax3 = plt.subplots(1, 3, figsize=(16, 5), constrained_layout=True)
+    for a_, key, title in zip(ax3, ("found", "ok", "p"),
+                              ("truth among the candidates", "top candidate correct",
+                               "mean calibrated P(top)")):
+        im = a_.imshow(grids[key], vmin=0, vmax=1, cmap="viridis", origin="lower", aspect="auto")
+        a_.set_xticks(range(len(apps)), [str(int(a)) for a in apps])
+        a_.set_yticks(range(len(nlab)), nlab)
+        a_.set_xlabel("apparitions")
+        if key == "found":
+            a_.set_ylabel("photometric noise")
+        a_.set_title(title)
+        for (yy, xx), v in np.ndenumerate(grids[key]):
+            if np.isfinite(v):
+                a_.text(xx, yy, f"{v:.2f}\nN={int(grids['n'][yy, xx])}", ha="center",
+                        va="center", fontsize=7, color="w" if v < 0.6 else "k")
+    fig3.colorbar(im, ax=ax3, shrink=0.85)
+    fig3.suptitle("Identifiability map from injection-recovery (pole within 20° and true period)")
+    fig3.savefig(os.path.join(OUT, "identifiability_map.png"), dpi=130, bbox_inches="tight")
+    fig3.savefig(os.path.join(HERE, "docs", "images", "identifiability_map.png"), dpi=130,
+                 bbox_inches="tight")
 
     # ---- ship a model trained on ALL injections (metrics above are the
     # out-of-sample nested-CV ones)
