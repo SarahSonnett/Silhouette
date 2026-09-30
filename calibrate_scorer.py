@@ -69,10 +69,10 @@ def cmd_train(args):
 
     from silhouette.calibration import (
         DEFAULT_MODEL_PATH, FEATURES, brier, classical_accept, fit_score_model,
-        reliability, yield_curve,
+        reliability, upgrade_legacy_s2, yield_curve,
     )
 
-    df = load_table()
+    df = upgrade_legacy_s2(load_table())
     df = df.replace([np.inf, -np.inf], np.nan).dropna(subset=FEATURES + ["correct"])
     inj = df["inj"].astype(int).values
     uniq = np.unique(inj)

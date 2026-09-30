@@ -271,11 +271,15 @@ def test_recommender_ranks_and_filters(cands):
     sun = np.array([_dir(l + 10.0, 1.0) * 2.5 for l in lons])
     recs = recommend_observations(cands, lons, sun, earth, min_elongation_deg=0.0)
     assert len(recs) == lons.size
-    scores = [r.expected_dchi2 for r in recs]
+    scores = [round(r.p_true_after, 3) for r in recs]
     assert scores == sorted(scores, reverse=True)
+    p = np.array([c.probability for c in cands])
+    p = p / p.sum()
+    assert all(np.sum(p * p) - 1e-9 <= r.p_true_after <= 1.0 + 1e-9 for r in recs)
     same = recommend_observations([cands[0], cands[0]], lons, sun, earth,
                                   probabilities=[0.5, 0.5], min_elongation_deg=0.0)
     assert max(r.expected_dchi2 for r in same) == pytest.approx(0.0, abs=1e-9)
+    assert max(r.p_true_after for r in same) == pytest.approx(0.5)
     strict = recommend_observations(cands, lons, sun, earth, min_elongation_deg=179.0)
     assert len(strict) < lons.size
 
@@ -299,3 +303,60 @@ def test_simple_orbit_geometry_opposition():
     sun, earth = simple_orbit_geometry([0.0], a_au=2.5, incl_deg=0.0, lon0_deg=0.0)
     np.testing.assert_allclose(np.linalg.norm(earth[0]), 1.5)
     assert solar_elongation_deg(sun, earth)[0] == pytest.approx(180.0)
+
+
+# --- Squint/SpinDoc glue ---------------------------------------------------------
+
+def test_split_nights_and_reduction():
+    from silhouette.io import Photometry
+    from silhouette.pipeline import AU_LIGHT_DAYS, lightcurves_from_photometry, split_nights
+    t = np.concatenate([58700.1 + np.arange(12) * 0.01, 58701.1 + np.arange(10) * 0.01,
+                        58702.1 + np.arange(3) * 0.01])
+    n = t.size
+    phot = Photometry(time=t, mag=np.full(n, 15.0), merr=np.full(n, 0.02),
+                      rhelio=np.full(n, 2.0), delta=np.full(n, 1.0), alpha=np.full(n, 10.0))
+    assert [len(i) for i in split_nights(t)] == [12, 10, 3]
+    geo = (np.array([[-2.0, 0, 0], [-2.0, 0.1, 0]]), np.array([[-1.0, 0, 0], [-1.0, 0.1, 0]]))
+    lcs = lightcurves_from_photometry(phot, geometry=geo, min_points=8)
+    assert len(lcs) == 2                                    # 3-point night dropped
+    np.testing.assert_allclose(lcs[0].flux, 10 ** (-0.4 * (15.0 - 5 * np.log10(2.0))))
+    np.testing.assert_allclose(lcs[0].times, t[:12] - AU_LIGHT_DAYS)
+    rel = lcs[0].sigma / lcs[0].flux
+    np.testing.assert_allclose(rel, np.sqrt(0.02 ** 2 + 0.005 ** 2) * 0.4 * np.log(10))
+    with pytest.raises(ValueError):
+        lightcurves_from_photometry(phot)
+
+
+def test_upgrade_legacy_s2_matches_new_rule():
+    import pandas as pd
+    from silhouette.calibration import upgrade_legacy_s2
+    # one injection, best chi2_nu 0.5: old rule used s2=1, new uses 0.5
+    df = pd.DataFrame({"inj": [0, 0], "redchi2_min": [0.5, 0.5],
+                       "dchi2_scaled": [0.0, 2.0], "margin_scaled": [2.0, -2.0],
+                       "like_weight": [0.73, 0.27], "boot_frac": [0.6, 0.4],
+                       "p_uncal": [0.8, 0.2]})
+    up = upgrade_legacy_s2(df)
+    np.testing.assert_allclose(up["dchi2_scaled"], [0.0, 4.0])
+    w = np.array([1.0, np.exp(-2.0)])
+    np.testing.assert_allclose(up["like_weight"], w / w.sum())
+    assert upgrade_legacy_s2(up) is up
+
+
+def test_group_by_apparition_with_phase_correction():
+    from silhouette.io import Photometry
+    from silhouette.pipeline import lightcurves_from_photometry
+    t = np.concatenate([58700.1 + np.arange(10) * 0.01, 58703.1 + np.arange(10) * 0.01,
+                        58900.1 + np.arange(10) * 0.01])
+    n = t.size
+    alpha = np.where(t < 58800, 5.0, 15.0)
+    phot = Photometry(time=t, mag=np.full(n, 15.0), merr=np.full(n, 0.02),
+                      rhelio=np.full(n, 2.0), delta=np.full(n, 1.0), alpha=alpha)
+    sun = np.array([[-2.0, 0, 0], [-2.0, 0.1, 0], [-2.0, 0.5, 0]])
+    earth = np.array([[-1.0, 0, 0], [-1.0, 0.1, 0], [-1.0, 0.5, 0]])
+    lcs = lightcurves_from_photometry(phot, geometry=(sun, earth), group="apparition",
+                                      phase_G=0.15)
+    assert [len(lc) for lc in lcs] == [20, 10]
+    assert lcs[0].earth.shape == (20, 3)
+    np.testing.assert_allclose(lcs[0].earth[10], earth[1])
+    # phase correction brightens the higher-phase apparition more
+    assert lcs[1].flux[0] > lcs[0].flux[0]

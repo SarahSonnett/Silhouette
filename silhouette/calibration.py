@@ -237,9 +237,39 @@ def inject_one(seed: int, tol_deg: float = 20.0, n_boot: int = 10,
             "plan_noise": plan.noise_frac, "plan_alpha_max": plan.phase_max,
             "correct": float(right_p and sep < tol_deg),
             "elapsed_s": elapsed,
+            "s2": noise["s2"],
         })
         rows.append(row)
     return rows
+
+
+def upgrade_legacy_s2(df):
+    """Convert rows made with the old ``s² = max(1, χ²_ν,min)`` rule to ``s² = χ²_ν,min``.
+
+    The first calibration run (2026-09-29) used the floored rule. Rows without
+    an ``s2`` column are converted exactly: the scaled Δχ² features are
+    rescaled by ``s²_old / s²_new`` and the likelihood weights (and the
+    uncalibrated probability built from them) are recomputed per injection.
+    Returns a new DataFrame.
+    """
+    import pandas as pd
+
+    if "s2" in df.columns:
+        return df
+    out = df.copy()
+    r = out["redchi2_min"].astype(float)
+    factor = np.maximum(1.0, r) / np.maximum(r, 0.05)
+    out["dchi2_scaled"] = out["dchi2_scaled"] * factor
+    sentinel = out["margin_scaled"] == 50.0
+    out.loc[~sentinel, "margin_scaled"] = (out["margin_scaled"] * factor)[~sentinel]
+    ll = -0.5 * out["dchi2_scaled"]
+    ll = ll - ll.groupby(out["inj"]).transform("max")
+    w = np.exp(ll)
+    out["like_weight"] = w / w.groupby(out["inj"]).transform("sum")
+    pu = out["like_weight"] * (out["boot_frac"] + 0.05)
+    out["p_uncal"] = pu / pu.groupby(out["inj"]).transform("sum")
+    out["s2"] = np.maximum(r, 0.05)
+    return pd.DataFrame(out)
 
 
 def _inject_safe(seed):
@@ -451,6 +481,6 @@ def yield_curve(p_best: np.ndarray, correct_best: np.ndarray, n_total: int,
 __all__ = [
     "FEATURES", "FAST_INV", "FAST_GRID", "Truth", "GeometryPlan", "ScoreModel",
     "irregular_shape", "random_truth", "random_geometry", "render", "inject_one",
-    "run_injections", "fit_score_model", "load_default_model", "DEFAULT_MODEL_PATH",
+    "run_injections", "upgrade_legacy_s2", "fit_score_model", "load_default_model", "DEFAULT_MODEL_PATH",
     "reliability", "brier", "classical_accept", "yield_curve",
 ]

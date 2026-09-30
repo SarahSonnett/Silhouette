@@ -12,9 +12,9 @@ This module turns a set of candidate solutions into a ranked list with a
 probability attached to each, in three layers:
 
 1. **Likelihood layer** (:func:`likelihood_weights`) — relative likelihoods from
-   chi-squared with an honest noise model: the error bars are inflated so the
-   best fit has ``chi2_nu = 1`` (unmodelled systematics are assumed to be shared
-   by every candidate), and the effective number of independent points is
+   chi-squared with an honest noise model: the error bars are rescaled so the
+   best fit has ``chi2_nu = 1`` (unmodelled systematics, or over-generous
+   assumed errors, are taken to be shared by every candidate), and the effective number of independent points is
    reduced for residual autocorrelation within each light curve (correlated
    residuals make raw Δχ² far too decisive). Optional population priors on pole
    latitude and elongation enter here.
@@ -315,6 +315,19 @@ class PopulationPrior:
         return lp
 
 
+def noise_scale(redchi2_min: float) -> float:
+    """Error-bar rescaling ``s² = χ²_ν,min`` (floored at 0.05).
+
+    Scaling the errors so the best candidate has ``χ²_ν = 1`` works in *both*
+    directions: inflating underestimated errors (unmodelled systematics) and
+    shrinking overestimated ones — e.g. the uniform 2 % assumed for DAMIT
+    curves, where ``χ²_ν ≈ 0.2`` would otherwise flatten every Δχ² fivefold.
+    It is the same normalisation that makes the classical ``χ²/χ²_min``
+    uniqueness threshold scale-free.
+    """
+    return float(max(redchi2_min, 0.05))
+
+
 def likelihood_weights(candidates: Sequence[Candidate],
                        lightcurves: Sequence[LightCurveObs],
                        prior: Optional[Callable[[Candidate], float]] = None,
@@ -322,8 +335,8 @@ def likelihood_weights(candidates: Sequence[Candidate],
     """Fill ``log_like`` and ``like_weight`` on every candidate (in place).
 
     ``log L_i = −½ · f_eff · (χ²_i − χ²_min) / s²`` + BIC-style parameter
-    penalty + log prior, with ``s² = max(1, χ²_ν,min)`` (error-bar inflation so
-    the best model is adequate) and ``f_eff`` from the best fit's residual
+    penalty + log prior, with ``s² = χ²_ν,min`` (:func:`noise_scale`: errors
+    rescaled so the best model has ``χ²_ν = 1``) and ``f_eff`` from the best fit's residual
     autocorrelation. Weights are the normalised ``exp(log L)``; they sum to one
     over the candidates *found*, so they cannot express "none of these" — the
     calibration layer can.
@@ -331,7 +344,7 @@ def likelihood_weights(candidates: Sequence[Candidate],
     Returns the noise-model diagnostics.
     """
     best = min(candidates, key=lambda c: c.chi2)
-    s2 = max(1.0, best.redchi2)
+    s2 = noise_scale(best.redchi2)
     rho = residual_autocorrelation(best.fit, lightcurves, **model_kw)
     f = neff_factor(rho)
     n = best.fit.n_data
@@ -493,7 +506,7 @@ def candidate_features(candidates: Sequence[Candidate],
     df = data_feats if data_feats is not None else data_features(lightcurves)
     nd = noise_diag or {}
     best = min(candidates, key=lambda c: c.chi2)
-    s2 = nd.get("s2", max(1.0, best.redchi2))
+    s2 = nd.get("s2", noise_scale(best.redchi2))
     f = nd.get("neff_factor", 1.0)
     period_best = {}
     for c in candidates:
@@ -651,6 +664,6 @@ __all__ = [
     "Candidate", "PopulationPrior", "ScoreReport", "spin_vector_pole",
     "projected_areas", "shape_proxies", "alias_periods", "baseline_of",
     "find_candidates", "likelihood_weights", "residual_autocorrelation",
-    "neff_factor", "bootstrap_stability", "data_features", "candidate_features",
+    "neff_factor", "noise_scale", "bootstrap_stability", "data_features", "candidate_features",
     "longitude_coverage", "combine_uncalibrated", "score_solutions", "model_flux",
 ]

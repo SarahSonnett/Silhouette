@@ -13,8 +13,18 @@ candidate, converts to magnitudes, removes the mean (relative photometry) and
 compares candidates pairwise after the best circular phase shift — rotational
 phase cannot be propagated reliably years ahead, so only the phase-invariant
 light-curve *shape* and *amplitude* count. The pairwise difference becomes the
-Δχ² one night of ``n_points`` at ``sigma_mag`` would deliver, and the
-probability-weighted mean over pairs is the epoch's score.
+Δχ²_ij one night of ``n_points`` at ``sigma_mag`` would deliver.
+
+Epochs are ranked by the **expected probability of the true solution after
+that night**: if candidate ``i`` is true, the updated weight of each rival
+``j`` is ``p_j exp(−Δχ²_ij / 2)``, so
+
+    E[p_true] = Σ_i p_i · p_i / Σ_j p_j exp(−Δχ²_ij / 2).
+
+This is 0–1, rewards separating the *probable* candidates, and cannot be
+dominated by one improbable but very different rival. It equals the current
+``Σ p_i²`` when an epoch separates nothing and approaches 1 when it separates
+everything. The probability-weighted mean Δχ² is reported alongside.
 """
 
 from __future__ import annotations
@@ -82,6 +92,7 @@ class EpochScore:
     epoch: float
     phase_deg: float
     elongation_deg: float
+    p_true_after: float            # expected posterior prob. of the true candidate
     expected_dchi2: float          # probability-weighted mean over candidate pairs
     top_pair_dchi2: float          # between the two most probable candidates
     amplitudes: List[float] = field(default_factory=list)   # mag, per candidate
@@ -97,7 +108,6 @@ def recommend_observations(
     sigma_mag: float = 0.02,
     min_elongation_deg: float = 60.0,
     max_phase_deg: Optional[float] = None,
-    dchi2_cap: float = 100.0,
     n_phase: int = 72,
 ) -> List[EpochScore]:
     """Rank future epochs by how well one night would separate the candidates.
@@ -111,10 +121,8 @@ def recommend_observations(
     n_points, sigma_mag : what one night of data would look like
     min_elongation_deg, max_phase_deg : observability cuts (elongation needs
         true AU vectors; if the vectors are unit length it is skipped)
-    dchi2_cap : each pair's Δχ² is capped so one hugely different, improbable
-        pair cannot dominate an epoch's score
 
-    Returns epochs sorted best first.
+    Returns epochs sorted best first (by ``p_true_after``, then mean Δχ²).
     """
     sun_vecs = np.atleast_2d(np.asarray(sun_vecs, dtype=float))
     earth_vecs = np.atleast_2d(np.asarray(earth_vecs, dtype=float))
@@ -138,23 +146,22 @@ def recommend_observations(
             continue
         curves = [predicted_rotation(c, s, e, n_phase=n_phase) for c in candidates]
         n = len(curves)
-        num = den = 0.0
-        top = 0.0
+        dchi = np.zeros((n, n))
         for i in range(n):
             for j in range(i + 1, n):
                 d = shift_invariant_rms(curves[i], curves[j])
-                dchi = min(n_points * d * d / sigma_mag ** 2, dchi2_cap)
-                w = p[i] * p[j]
-                num += w * dchi
-                den += w
-                if {i, j} == {i1, i2}:
-                    top = dchi
+                dchi[i, j] = dchi[j, i] = n_points * d * d / sigma_mag ** 2
+        w = np.outer(p, p)
+        iu = np.triu_indices(n, 1)
+        den = float(w[iu].sum())
+        top = float(dchi[i1, i2]) if n > 1 else 0.0
+        p_after = float(np.sum(p * p / (np.exp(-0.5 * dchi) @ p)))
         out.append(EpochScore(epoch=float(ep), phase_deg=float(a),
-                              elongation_deg=float(el),
-                              expected_dchi2=num / den if den > 0 else 0.0,
+                              elongation_deg=float(el), p_true_after=p_after,
+                              expected_dchi2=float((w * dchi)[iu].sum()) / den if den > 0 else 0.0,
                               top_pair_dchi2=top,
                               amplitudes=[float(np.ptp(cv)) for cv in curves]))
-    out.sort(key=lambda r: -r.expected_dchi2)
+    out.sort(key=lambda r: (-round(r.p_true_after, 3), -r.expected_dchi2))
     return out
 
 
@@ -202,13 +209,14 @@ def simple_orbit_geometry(epochs_days: Sequence[float], a_au: float = 2.7,
 
 def format_recommendations(recs: Sequence[EpochScore], top: int = 10,
                            epoch_fmt=lambda e: f"{e:.1f}") -> str:
-    lines = [f"{'epoch':>14s} {'phase':>6s} {'elong':>6s} {'E[dchi2]':>9s} "
+    lines = [f"{'epoch':>14s} {'phase':>6s} {'elong':>6s} {'E[p_true]':>9s} {'E[dchi2]':>9s} "
              f"{'top-2 dchi2':>11s}  amplitudes (mag)"]
     for r in recs[:top]:
         amps = " ".join(f"{a:.2f}" for a in r.amplitudes)
         el = f"{r.elongation_deg:6.0f}" if np.isfinite(r.elongation_deg) else "     -"
         lines.append(f"{epoch_fmt(r.epoch):>14s} {r.phase_deg:6.1f} {el} "
-                     f"{r.expected_dchi2:9.1f} {r.top_pair_dchi2:11.1f}  {amps}")
+                     f"{r.p_true_after:9.3f} {r.expected_dchi2:9.1f} "
+                     f"{r.top_pair_dchi2:11.1f}  {amps}")
     return "\n".join(lines)
 
 
