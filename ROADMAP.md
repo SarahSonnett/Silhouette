@@ -14,6 +14,7 @@ landed and what changed along the way. Remaining open questions are flagged
 | **1b** | parallel period scan | ✅ `scan_period`, `period_search_grid` |
 | **2** | DEEVE → density & cohesion limits | ✅ `geophysics.py`, `geoplots.py` |
 | **3** | integration, docs, plots | ◐ README/docs done; unified `analyze()` still open |
+| **S** | calibrated solution scorer + observation planner (2026-09-30) | ✅ `scoring.py`, `calibration.py`, `planning.py`, `pipeline.py`, `score_target.py`; see `docs/scoring.md` |
 
 **Decisions resolved by building:**
 
@@ -25,6 +26,20 @@ landed and what changed along the way. Remaining open questions are flagged
 - *Uncertainties* → **uniform fractional σ** for archival data; deriving σ from
   point-to-point scatter is actively harmful on digitised DAMIT curves.
 - *Period* → **input by default**, with `scan_period` for discovery.
+
+**Scorer follow-ups (open):**
+
+- **[DECIDE] pole convention**: Silhouette's pole is anti-parallel to the spin
+  angular momentum (`spin_vector_pole` converts). Flipping `R_z(φ)` in
+  `forward.py` would match DAMIT but changes every stored pole.
+- Denser start grid (30 vs 20) to lift "truth among candidates" from 83%;
+  retrain after any change to `FAST_INV`/`FAST_GRID`.
+- Richer injection truths: non-convex shapes, albedo spots, Hapke-like
+  phase behaviour, heterogeneous archival noise. Real Eunomia shows a
+  sim-to-real gap.
+- A sparse-survey mode (Gaia/ATLAS/ZTF points) and mixed dense+sparse runs.
+- Hand the stage-2 NPE project this simulator, injection harness and the
+  calibration tests.
 
 **Lessons that changed the design:**
 

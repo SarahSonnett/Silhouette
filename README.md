@@ -12,6 +12,7 @@ It offers two shape methods and a materials module:
 | **Fast estimate** | closed-form amplitude–aspect + mean-magnitude relations | `a:b`, `b:c`, pole `(λ, β)` |
 | **Full inversion** | convex light-curve inversion (Gaussian image + SH) | convex shape → DEEVE `a:b`, `b:c`, pole, period |
 | **Materials** | Drucker–Prager rotational stability | minimum bulk density, required cohesion |
+| **Which solution?** | calibrated solution scorer + observation planner | probability for every period/pole candidate; best dates to observe next |
 
 It is, in effect, the *inverse* of
 [SpotLight](https://github.com/SarahSonnett/SpotLight): where SpotLight renders a
@@ -249,6 +250,56 @@ Three conclusions:
 
 ---
 
+## 4b. Which solution? Calibrated probabilities
+
+![Scorer calibration](docs/images/scorer_calibration.png)
+
+Convex inversion rarely returns one answer. Period aliases, the
+(λ, β) ↔ (λ + 180°, β) mirror pole, the spin-sense antipode and local minima all
+give candidates with nearly equal χ². The classical practice accepts a solution
+only when it beats every rival by about 10% in χ² and discards the rest.
+`score_solutions` keeps every plausible candidate and attaches a **calibrated
+probability** to each. No pole needs to be known in advance.
+
+It works in three layers:
+
+1. **Likelihood weights.** Errors are rescaled so the best fit has χ²_ν = 1,
+   the effective number of points is reduced for correlated residuals, and
+   population priors are optional.
+2. **Whole-light-curve bootstrap agreement.**
+3. **A calibration classifier.** A gradient-boosted model with isotonic
+   calibration was trained on 1220 injected synthetic asteroids run through the
+   identical pipeline.
+
+`recommend_observations` then ranks future dates by the expected probability
+of the true solution after one more night.
+
+Out-of-sample results (nested, injection-grouped CV):
+
+| | objects correctly solved | false-solution rate |
+|---|---|---|
+| classical rule (no rival within 10%) | 38.0% | 9.2% |
+| **scorer at the same false rate** | **48.1%** | 8.7% |
+| **scorer at 5%** | **43.1%** | 4.9% |
+
+- The calibrated probabilities are reliable, with Brier 0.067 against 0.095
+  for raw likelihood weights.
+- They stay calibrated on the 58% of objects the classical rule rejects.
+- For single-apparition data, two thirds of the classical rule's accepted
+  poles are wrong. The scorer instead reports a low probability (about 0.2),
+  which is accurate.
+- The injections also yield an **identifiability map** that turns the
+  "≥3 apparitions" rule of thumb into numbers.
+
+![Identifiability map](docs/images/identifiability_map.png)
+
+Details, the per-apparition breakdown, limitations and real-data tests (Eunomia,
+16152) are in [docs/scoring.md](docs/scoring.md).
+
+> **Pole convention.** Silhouette's pole points *opposite* to the spin angular
+> momentum, so DAMIT's pole is Silhouette's antipode (λ + 180°, −β). Use
+> `spin_vector_pole()` before comparing; `score_target.py` prints both.
+
 ## 5. Runtime
 
 Measured on a 14-core Apple Silicon laptop, Python 3.11, **one BLAS thread per
@@ -414,6 +465,30 @@ The grid step is `dP = P²/(T·oversample)`, because a period error `dP` drifts 
 rotational phase by `T·dP/P²` rotations over a baseline `T`. **Periods separated
 by `P²/T` are one-rotation aliases and fit equally well** — scan inside that
 window, or expect alias ambiguity.
+
+### Scoring competing solutions (Squint → SpinDoc → Silhouette)
+
+```bash
+# calibrated SpinDoc-format photometry + the SpinDoc period
+python score_target.py photometry.txt --target 16152 --period-h 22.936 \
+    --group apparition --phase-G 0.15 --n-workers 4 \
+    --plan-start 2027-01-01 --plan-stop 2029-12-31
+```
+
+```python
+from silhouette import (read_photometry, lightcurves_from_photometry, spindoc_periods,
+                        score_solutions, load_default_model)
+from silhouette.calibration import FAST_GRID, FAST_INV   # the calibrated settings
+
+lcs = lightcurves_from_photometry(read_photometry("phot.txt"), target="16152")
+rep = score_solutions(lcs, spindoc_periods(22.936, 50.0), pole_grid=FAST_GRID,
+                      model=load_default_model(), n_workers=4, **FAST_INV)
+print(rep.summary())
+```
+
+The calibration model is regenerated, not committed:
+`python calibrate_scorer.py run --workers 4 --hours 6` then
+`python calibrate_scorer.py train`.
 
 ### Command line
 

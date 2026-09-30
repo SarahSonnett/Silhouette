@@ -258,7 +258,7 @@ def cmd_train(args):
     order = np.argsort(pi.importances_mean)[::-1]
 
     # ---- figures ------------------------------------------------------------
-    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+    fig, axes = plt.subplots(1, 3, figsize=(17, 5.2))
     ax = axes[0]
     ax.plot([0, 1], [0, 1], color="0.6", lw=1, ls="--", label="perfect calibration")
     for name, style in [("calibrated scorer", dict(color="C0", marker="o")),
@@ -278,8 +278,8 @@ def cmd_train(args):
         if v["false_rate"] is not None:
             ax.plot(v["false_rate"] * 100, v["yield"] * 100, mk, ms=11, color="C3",
                     label=f"classical: {name}")
-    ax.set_xlabel("false-solution rate among accepted objects (%)")
-    ax.set_ylabel("objects with a correct accepted solution (%)")
+    ax.set_xlabel("false-solution rate among accepted (%)")
+    ax.set_ylabel("objects correctly solved (%)")
     ax.set_title("Yield vs false-solution rate")
     ax.set_xlim(0, 40)
     ax.legend(fontsize=8, loc="lower right")
@@ -288,7 +288,7 @@ def cmd_train(args):
     k = order[:12][::-1]
     ax.barh([FEATURES[i] for i in k], pi.importances_mean[k], xerr=pi.importances_std[k],
             color="C0")
-    ax.set_xlabel("permutation importance (Brier increase)")
+    ax.set_xlabel("permutation importance (ΔBrier)")
     ax.set_title("What the scorer relies on")
     fig.tight_layout()
     fig_path = os.path.join(OUT, "scorer_calibration.png")

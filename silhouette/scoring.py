@@ -97,6 +97,7 @@ class Candidate:
     like_weight: float = np.nan
     boot_frac: float = np.nan
     probability: float = np.nan
+    probability_raw: float = np.nan   # per-candidate calibrated value before renormalising
     calibrated: bool = False
     features: Dict[str, float] = field(default_factory=dict, repr=False)
 
@@ -706,12 +707,17 @@ def score_solutions(
     p_none = np.nan
     if model is not None:
         probs = model.predict_proba(cands)
-        for c, p in zip(cands, probs):
-            c.probability = float(p)
-            c.calibrated = True
         # families are >= pole_tol apart, so "candidate i is correct" events are
-        # (nearly) mutually exclusive and the leftover mass is "none of them"
-        p_none = float(np.clip(1.0 - np.sum(probs), 0.0, 1.0))
+        # (nearly) mutually exclusive: the leftover mass is "none of them", and
+        # if the per-candidate calibrated values over-fill (sum > 1) they are
+        # rescaled to sum to one so the set stays coherent
+        total = float(np.sum(probs))
+        scale = 1.0 / total if total > 1.0 else 1.0
+        for c, p in zip(cands, probs):
+            c.probability_raw = float(p)
+            c.probability = float(p) * scale
+            c.calibrated = True
+        p_none = float(max(0.0, 1.0 - total))
     else:
         combine_uncalibrated(cands)
     cands.sort(key=lambda c: -c.probability)

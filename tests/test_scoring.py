@@ -360,3 +360,16 @@ def test_group_by_apparition_with_phase_correction():
     np.testing.assert_allclose(lcs[0].earth[10], earth[1])
     # phase correction brightens the higher-phase apparition more
     assert lcs[1].flux[0] > lcs[0].flux[0]
+
+
+def test_calibrated_probabilities_renormalised_when_overfull(lcs):
+    class Dummy:
+        def predict_proba(self, cands):
+            return np.full(len(cands), 0.8)
+    rep = score_solutions(lcs, [PERIOD], pole_grid=GRID[:3], n_boot=0, model=Dummy(), **FAST)
+    assert rep.calibrated
+    total = sum(c.probability for c in rep.candidates)
+    if len(rep.candidates) > 1:
+        assert total == pytest.approx(1.0)
+        assert rep.p_none == 0.0
+        assert all(c.probability_raw == pytest.approx(0.8) for c in rep.candidates)

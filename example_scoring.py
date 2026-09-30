@@ -109,7 +109,7 @@ def main():
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    fig, axes = plt.subplots(2, 2, figsize=(12, 9))
+    fig, axes = plt.subplots(2, 2, figsize=(14, 9))
     ax = axes[0, 0]
     for i, c in enumerate(rep.candidates):
         ax.scatter(c.pole_lon, c.pole_lat, s=40 + 900 * c.probability, alpha=0.6,
@@ -123,7 +123,7 @@ def main():
     ax.set_ylabel("pole ecliptic latitude (deg)")
     kind = "calibrated" if rep.calibrated else "uncalibrated"
     ax.set_title(f"Candidate poles, marker area ∝ {kind} probability")
-    ax.legend(fontsize=7, loc="lower left")
+    ax.legend(fontsize=7, loc="upper left", bbox_to_anchor=(1.01, 1.0), markerscale=0.4)
 
     ax = axes[0, 1]
     lc = lcs[3]
@@ -151,7 +151,7 @@ def main():
     ax.set_ylim(0, 1.02)
     ax.set_xlabel("days since first observation")
     ax.set_ylabel("expected P(true solution) after one night")
-    ax.set_title("When would one more night break the degeneracy?\n(gaps = elongation < 90°)")
+    ax.set_title("Value of one more night (gaps: elongation < 90°)")
     ax.legend(fontsize=8)
 
     ax = axes[1, 1]
