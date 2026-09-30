@@ -30,7 +30,7 @@ import time  # noqa: E402
 
 import numpy as np  # noqa: E402
 
-from silhouette.calibration import FAST_GRID, FAST_INV, load_default_model  # noqa: E402
+from silhouette.calibration import FAST_INV, calibrated_setup  # noqa: E402
 from silhouette.damit import read_damit_lcs  # noqa: E402
 from silhouette.inversion import LightCurveObs, _sep_deg  # noqa: E402
 from silhouette.scoring import (  # noqa: E402
@@ -62,12 +62,12 @@ def load(max_apparitions=None, app_gap_days=60.0):
                           c.sun, c.earth, relative=not c.calibrated) for c in dense]
 
 
-def run(label, lcs, args, model):
+def run(label, lcs, args, model, grid):
     periods = alias_periods(PERIOD_H / 24.0, baseline_of(lcs), n_alias=1)
     print(f"\n=== {label}: {len(lcs)} curves, {sum(len(l) for l in lcs)} points, "
           f"baseline {baseline_of(lcs) / 365.25:.1f} yr ===")
     t0 = time.time()
-    rep = score_solutions(lcs, periods, pole_grid=FAST_GRID, n_workers=args.n_workers,
+    rep = score_solutions(lcs, periods, pole_grid=grid, n_workers=args.n_workers,
                           n_boot=args.n_boot, boot_max_nfev=30, model=model, **FAST_INV)
     print(f"scored in {time.time() - t0:.0f}s")
     print(rep.summary())
@@ -93,16 +93,17 @@ def main():
     ap.add_argument("--n-boot", type=int, default=12)
     ap.add_argument("--subset", choices=["all", "two", "both"], default="both")
     args = ap.parse_args()
-    model = load_default_model()
-    print("calibration model:", "loaded" if model is not None else "not trained (uncalibrated)")
+    grid, model, version = calibrated_setup()
+    print("calibration model:", f"{version} ({len(grid)} starts)" if model is not None
+          else "not trained (uncalibrated)")
     out = []
     if args.subset in ("two", "both"):
-        out.append(run("first two apparitions", load(max_apparitions=2), args, model))
+        out.append(run("first two apparitions", load(max_apparitions=2), args, model, grid))
     if args.subset in ("all", "both"):
-        out.append(run("all dense curves", load(), args, model))
+        out.append(run("all dense curves", load(), args, model, grid))
     os.makedirs(os.path.join(HERE, "results", "scorer"), exist_ok=True)
     path = os.path.join(HERE, "results", "scorer",
-                        f"eunomia_scoring_{'cal' if model is not None else 'uncal'}.json")
+                        f"eunomia_scoring_{version or 'uncal'}.json")
     with open(path, "w") as fh:
         json.dump(out, fh, indent=1, default=float)
     print(f"\n-> {path}")

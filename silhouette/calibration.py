@@ -67,7 +67,37 @@ FEATURES = [
 # richer settings, but the model is only calibrated for settings it was trained
 # with — keep production runs close to these or retrain.
 FAST_INV = dict(lmax=3, n_normals=150, max_nfev=150)
-FAST_GRID = default_pole_grid(n_lon=5, lats=(-60.0, -20.0, 20.0, 60.0))
+
+
+def antipodal_pole_grid(n: int = 30) -> List[tuple]:
+    """``n`` (even) starting poles, near-uniform on the sphere and closed under
+    the antipode map ``(λ, β) → (λ + 180°, −β)``.
+
+    Half the points are a Fibonacci spiral over the northern hemisphere, the
+    other half their antipodes. Antipode symmetry makes the start coverage — and
+    therefore the scorer's behaviour — independent of the pole sign convention,
+    and near-uniform spacing avoids the crowding of a lon×lat grid near the
+    poles.
+    """
+    if n % 2:
+        raise ValueError("n must be even")
+    m = n // 2
+    i = np.arange(m) + 0.5
+    z = i / m                                   # uniform in z over (0, 1]
+    lat = np.degrees(np.arcsin(z))
+    lon = np.degrees(np.pi * (1.0 + 5.0 ** 0.5) * i) % 360.0
+    north = [(float(lo), float(la)) for lo, la in zip(lon, lat)]
+    return north + [(float((lo + 180.0) % 360.0), float(-la)) for lo, la in north]
+
+
+# Calibration versions. A trained model is only calibrated for the pipeline
+# settings it saw, so each version pins its start grid, and the model file and
+# injection table carry the version name.
+GRID_V1 = default_pole_grid(n_lon=5, lats=(-60.0, -20.0, 20.0, 60.0))   # 20 starts
+GRID_V2 = antipodal_pole_grid(30)                                        # 30 starts
+CALIBRATION_GRIDS = {"v1": GRID_V1, "v2": GRID_V2}
+CURRENT_VERSION = "v2"
+FAST_GRID = CALIBRATION_GRIDS[CURRENT_VERSION]
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +228,8 @@ def render(truth: Truth, plan: GeometryPlan, rng: np.random.Generator) -> List[L
 # ---------------------------------------------------------------------------
 
 def inject_one(seed: int, tol_deg: float = 20.0, n_boot: int = 10,
-               boot_max_nfev: int = 30, n_alias: int = 1) -> List[Dict[str, float]]:
+               boot_max_nfev: int = 30, n_alias: int = 1,
+               version: str = CURRENT_VERSION) -> List[Dict[str, float]]:
     """Run the full scorer pipeline on one synthetic asteroid; one row per candidate."""
     rng = np.random.default_rng(seed)
     truth = random_truth(rng)
@@ -206,7 +237,8 @@ def inject_one(seed: int, tol_deg: float = 20.0, n_boot: int = 10,
     lcs = render(truth, plan, rng)
     periods = alias_periods(truth.period, max(baseline_of(lcs), truth.period), n_alias=n_alias)
     t_start = time.time()
-    cands = find_candidates(lcs, periods, pole_grid=FAST_GRID, n_workers=1, **FAST_INV)
+    cands = find_candidates(lcs, periods, pole_grid=CALIBRATION_GRIDS[version], n_workers=1,
+                            **FAST_INV)
     noise = likelihood_weights(cands, lcs)
     if len(cands) > 1 and n_boot > 0:
         bootstrap_stability(cands, lcs, n_boot=n_boot, seed=seed, boot_max_nfev=boot_max_nfev,
@@ -239,6 +271,7 @@ def inject_one(seed: int, tol_deg: float = 20.0, n_boot: int = 10,
             "correct": float(right_p and sep < tol_deg),
             "elapsed_s": elapsed,
             "s2": noise["s2"],
+            "n_starts": float(len(CALIBRATION_GRIDS[version])),
         })
         rows.append(row)
     return rows
@@ -302,15 +335,17 @@ def add_derived_features(df):
     return out
 
 
-def _inject_safe(seed):
+def _inject_safe(payload):
+    seed, version = payload
     try:
-        return seed, inject_one(seed), None
+        return seed, inject_one(seed, version=version), None
     except Exception as exc:  # keep the run alive; record the failure
         return seed, [], repr(exc)
 
 
 def run_injections(seeds: Sequence[int], out_csv: str, n_workers: int = 4,
-                   log_every: int = 10, deadline: Optional[float] = None) -> int:
+                   log_every: int = 10, deadline: Optional[float] = None,
+                   version: str = CURRENT_VERSION) -> int:
     """Run injections in parallel, appending rows to ``out_csv`` as they finish.
 
     Seeds already present in the CSV are skipped, so the run can be resumed.
@@ -339,7 +374,7 @@ def run_injections(seeds: Sequence[int], out_csv: str, n_workers: int = 4,
     n_done = 0
     fail_log = out_csv + ".failures.txt"
     with ProcessPoolExecutor(max_workers=n_workers) as pool:
-        futs = [pool.submit(_inject_safe, s) for s in todo]
+        futs = [pool.submit(_inject_safe, (s, version)) for s in todo]
         stopped = False
         for fut in as_completed(futs):
             if deadline is not None and not stopped and time.time() > deadline:
@@ -402,15 +437,40 @@ class ScoreModel:
             return pickle.load(fh)
 
 
-DEFAULT_MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                  "models", "scorer_v1.pkl")
+MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 
 
-def load_default_model() -> Optional[ScoreModel]:
-    """The bundled calibration model, or ``None`` if it has not been trained."""
-    if os.path.exists(DEFAULT_MODEL_PATH):
-        return ScoreModel.load(DEFAULT_MODEL_PATH)
+def model_path(version: str = CURRENT_VERSION) -> str:
+    return os.path.join(MODEL_DIR, f"scorer_{version}.pkl")
+
+
+DEFAULT_MODEL_PATH = model_path(CURRENT_VERSION)
+
+
+def load_default_model(version: str = CURRENT_VERSION) -> Optional[ScoreModel]:
+    """The trained calibration model for ``version``, or ``None`` if untrained."""
+    path = model_path(version)
+    if os.path.exists(path):
+        return ScoreModel.load(path)
     return None
+
+
+def calibrated_setup():
+    """``(pole_grid, model, version)`` that belong together.
+
+    Uses the current calibration version when its model has been trained,
+    otherwise falls back to the newest older version that has one (with that
+    version's own start grid), and finally to the current grid with no model
+    (uncalibrated). Always run the scorer with the grid returned here — a model
+    is only calibrated for the grid it was trained with.
+    """
+    order = [CURRENT_VERSION] + sorted((v for v in CALIBRATION_GRIDS if v != CURRENT_VERSION),
+                                       reverse=True)
+    for v in order:
+        m = load_default_model(v)
+        if m is not None:
+            return CALIBRATION_GRIDS[v], m, v
+    return CALIBRATION_GRIDS[CURRENT_VERSION], None, None
 
 
 def _make_classifier(seed: int = 0):
@@ -509,7 +569,8 @@ def yield_curve(p_best: np.ndarray, correct_best: np.ndarray, n_total: int,
 
 
 __all__ = [
-    "FEATURES", "FAST_INV", "FAST_GRID", "Truth", "GeometryPlan", "ScoreModel",
+    "FEATURES", "FAST_INV", "FAST_GRID", "GRID_V1", "GRID_V2", "CALIBRATION_GRIDS",
+    "CURRENT_VERSION", "antipodal_pole_grid", "model_path", "calibrated_setup", "Truth", "GeometryPlan", "ScoreModel",
     "irregular_shape", "random_truth", "random_geometry", "render", "inject_one",
     "run_injections", "upgrade_legacy_s2", "add_derived_features", "fit_score_model", "load_default_model", "DEFAULT_MODEL_PATH",
     "reliability", "brier", "classical_accept", "yield_curve",

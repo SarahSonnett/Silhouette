@@ -39,21 +39,32 @@ import numpy as np  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "results", "scorer")
-CSV = os.path.join(OUT, "injections.csv")
+
+
+def csv_path(version):
+    """Injection table for a calibration version (v1 kept its original name)."""
+    return os.path.join(OUT, "injections.csv" if version == "v1" else f"injections_{version}.csv")
+
+
+def out_dir(version):
+    d = os.path.join(OUT, version)
+    os.makedirs(d, exist_ok=True)
+    return d
 
 
 def cmd_run(args):
     from silhouette.calibration import run_injections
     os.makedirs(OUT, exist_ok=True)
+    CSV = csv_path(args.version)
     deadline = time.time() + args.hours * 3600.0 if args.hours else None
     print(f"[{time.strftime('%H:%M:%S')}] injections {args.start}..{args.start + args.n - 1} "
           f"on {args.workers} workers -> {CSV}", flush=True)
     n = run_injections(range(args.start, args.start + args.n), CSV,
-                       n_workers=args.workers, deadline=deadline)
+                       n_workers=args.workers, deadline=deadline, version=args.version)
     print(f"[{time.strftime('%H:%M:%S')}] finished {n} new injections", flush=True)
 
 
-def load_table(path=CSV):
+def load_table(path):
     import pandas as pd
     df = pd.read_csv(path)
     return df
@@ -68,11 +79,14 @@ def cmd_train(args):
     from sklearn.metrics import log_loss, roc_auc_score
 
     from silhouette.calibration import (
-        DEFAULT_MODEL_PATH, FEATURES, brier, classical_accept, fit_score_model,
+        CURRENT_VERSION, FEATURES, brier, classical_accept, fit_score_model, model_path,
         add_derived_features, reliability, upgrade_legacy_s2, yield_curve,
     )
 
-    df = add_derived_features(upgrade_legacy_s2(load_table()))
+    DEFAULT_MODEL_PATH = model_path(args.version)
+    OUTV = out_dir(args.version)
+    to_docs = args.version == CURRENT_VERSION     # docs figures track the current version
+    df = add_derived_features(upgrade_legacy_s2(load_table(csv_path(args.version))))
     df = df.replace([np.inf, -np.inf], np.nan).dropna(subset=FEATURES + ["correct"])
     inj = df["inj"].astype(int).values
     uniq = np.unique(inj)
@@ -291,10 +305,11 @@ def cmd_train(args):
     ax.set_xlabel("permutation importance (ΔBrier)")
     ax.set_title("What the scorer relies on")
     fig.tight_layout()
-    fig_path = os.path.join(OUT, "scorer_calibration.png")
+    fig_path = os.path.join(OUTV, "scorer_calibration.png")
     fig.savefig(fig_path, dpi=130)
     os.makedirs(os.path.join(HERE, "docs", "images"), exist_ok=True)
-    fig.savefig(os.path.join(HERE, "docs", "images", "scorer_calibration.png"), dpi=130)
+    if to_docs:
+        fig.savefig(os.path.join(HERE, "docs", "images", "scorer_calibration.png"), dpi=130)
 
     # P(correct) of the top candidate vs data richness -----------------------
     per = te.sort_values("p_cal", ascending=False).groupby("inj").head(1)
@@ -321,8 +336,9 @@ def cmd_train(args):
             a.set_xscale("log")
     fig2.suptitle("Out-of-sample: does the predicted probability track reality?")
     fig2.tight_layout()
-    fig2.savefig(os.path.join(OUT, "scorer_vs_data.png"), dpi=130)
-    fig2.savefig(os.path.join(HERE, "docs", "images", "scorer_vs_data.png"), dpi=130)
+    fig2.savefig(os.path.join(OUTV, "scorer_vs_data.png"), dpi=130)
+    if to_docs:
+        fig2.savefig(os.path.join(HERE, "docs", "images", "scorer_vs_data.png"), dpi=130)
 
     # ---- identifiability map: how often is a unique, correct answer reachable?
     per_obj["noise"] = [groups[i]["noise_frac"].iloc[0] for i in per_obj["inj"]]
@@ -357,8 +373,9 @@ def cmd_train(args):
                         va="center", fontsize=7, color="w" if v < 0.6 else "k")
     fig3.colorbar(im, ax=ax3, shrink=0.85)
     fig3.suptitle("Identifiability map from injection-recovery (pole within 20° and true period)")
-    fig3.savefig(os.path.join(OUT, "identifiability_map.png"), dpi=130, bbox_inches="tight")
-    fig3.savefig(os.path.join(HERE, "docs", "images", "identifiability_map.png"), dpi=130,
+    fig3.savefig(os.path.join(OUTV, "identifiability_map.png"), dpi=130, bbox_inches="tight")
+    if to_docs:
+        fig3.savefig(os.path.join(HERE, "docs", "images", "identifiability_map.png"), dpi=130,
                  bbox_inches="tight")
 
     # ---- ship a model trained on ALL injections (metrics above are the
@@ -367,9 +384,11 @@ def cmd_train(args):
                             df["inj"].astype(int).values, seed=args.seed)
     final.meta.update({"oof_metrics": metrics, "classical": classical,
                        "head_to_head": head, "n_eval_injections": n_obj, "eval": "nested grouped CV",
-                       "settings": "calibration.FAST_INV + FAST_GRID, n_boot=10, tol 20 deg"})
+                       "version": args.version,
+                       "settings": f"calibration.FAST_INV + CALIBRATION_GRIDS['{args.version}'], "
+                                   "n_boot=10, tol 20 deg"})
     final.save(DEFAULT_MODEL_PATH)
-    with open(os.path.join(OUT, "metrics.json"), "w") as fh:
+    with open(os.path.join(OUTV, "metrics.json"), "w") as fh:
         json.dump({"metrics": metrics, "classical": classical, "head_to_head": head,
                    "by_n_app": by_app,
                    "yield_at_false_rate": {str(t): {"calibrated": yield_at(t, fr, yl),
@@ -391,10 +410,15 @@ def main():
     r.add_argument("--start", type=int, default=0)
     r.add_argument("--workers", type=int, default=4)
     r.add_argument("--hours", type=float, default=None, help="stop cleanly after this long")
+    r.add_argument("--version", default=None, help="calibration version (default: current)")
     t = sub.add_parser("train", help="train + evaluate the calibrated classifier")
     t.add_argument("--seed", type=int, default=0)
     t.add_argument("--folds", type=int, default=5, help="outer grouped-CV folds")
+    t.add_argument("--version", default=None, help="calibration version (default: current)")
     args = ap.parse_args()
+    if args.version is None:
+        from silhouette.calibration import CURRENT_VERSION
+        args.version = CURRENT_VERSION
     {"run": cmd_run, "train": cmd_train}[args.cmd](args)
 
 

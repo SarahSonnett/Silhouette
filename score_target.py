@@ -31,7 +31,7 @@ import time  # noqa: E402
 
 import numpy as np  # noqa: E402
 
-from silhouette.calibration import FAST_GRID, FAST_INV, load_default_model  # noqa: E402
+from silhouette.calibration import FAST_INV, calibrated_setup  # noqa: E402
 from silhouette.io import read_photometry  # noqa: E402
 from silhouette.pipeline import lightcurves_from_photometry, spindoc_periods  # noqa: E402
 from silhouette.planning import (  # noqa: E402
@@ -72,13 +72,14 @@ def main():
                                       phase_G=args.phase_G)
     periods = spindoc_periods(args.period_h, baseline_of(lcs), n_alias=args.n_alias,
                               harmonics=args.harmonics)
-    model = load_default_model()
+    grid, model, version = calibrated_setup()
     print(f"{len(lcs)} light curves ({args.group} grouping), {sum(len(l) for l in lcs)} points, baseline "
           f"{baseline_of(lcs):.1f} d; trial periods (h): {np.round(periods * 24, 5)}")
-    print("calibration model:", "loaded" if model is not None else "none (uncalibrated)")
+    print("calibration model:", f"{version} ({len(grid)} starts)" if model is not None
+          else "none (uncalibrated)")
 
     t0 = time.time()
-    rep = score_solutions(lcs, periods, pole_grid=FAST_GRID, n_workers=args.n_workers,
+    rep = score_solutions(lcs, periods, pole_grid=grid, n_workers=args.n_workers,
                           n_boot=args.n_boot, boot_max_nfev=30, model=model, **FAST_INV)
     print(f"scored in {time.time() - t0:.0f}s\n")
     print(rep.summary())

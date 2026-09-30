@@ -31,7 +31,7 @@ import time  # noqa: E402
 import numpy as np  # noqa: E402
 
 from silhouette.calibration import (  # noqa: E402
-    FAST_GRID, FAST_INV, irregular_shape, load_default_model,
+    FAST_INV, calibrated_setup, irregular_shape,
 )
 from silhouette.forward import convex_lightcurve, ls_lambert  # noqa: E402
 from silhouette.inversion import LightCurveObs, _sep_deg  # noqa: E402
@@ -76,13 +76,14 @@ def main():
     rng = np.random.default_rng(11)
     truth, lcs = make_data(rng)
     periods = alias_periods(PERIOD, baseline_of(lcs), n_alias=1)
-    model = load_default_model()
+    grid, model, version = calibrated_setup()
     print(f"{len(lcs)} light curves, {sum(len(l) for l in lcs)} points, 2 apparitions; "
           f"trial periods (h): {np.round(periods * 24, 5)}")
-    print("calibration model:", "loaded" if model is not None else "not trained yet (uncalibrated)")
+    print("calibration model:", f"{version} ({len(grid)} starts)" if model is not None
+          else "not trained yet (uncalibrated)")
 
     t0 = time.time()
-    rep = score_solutions(lcs, periods, pole_grid=FAST_GRID, n_workers=args.n_workers,
+    rep = score_solutions(lcs, periods, pole_grid=grid, n_workers=args.n_workers,
                           n_boot=args.n_boot, boot_max_nfev=30, model=model, **FAST_INV)
     print(f"scored in {time.time() - t0:.0f}s\n")
     print(rep.summary())
