@@ -6,10 +6,8 @@ This runs the scorer on the same data with the calibrated settings and asks
 what probability it gives each family, and whether the DAMIT solution is the
 one it favours.
 
-Pole convention: Silhouette's pole is anti-parallel to the spin angular
-momentum (see ``silhouette.scoring.spin_vector_pole``), so candidate poles are
-converted before comparison with DAMIT's (λ ≈ 3°, β ≈ −67°). The old example's
-"mirror allowed" comparison was absorbing exactly this flip.
+Poles are spin angular-momentum directions (DAMIT convention since
+2026-09-30), so they compare directly with DAMIT's (λ ≈ 3°, β ≈ −67°).
 
 Two subsets are scored: all dense curves (the classical "enough data" case)
 and the first two apparitions only (the case where a probability is most
@@ -36,7 +34,7 @@ from silhouette.calibration import FAST_GRID, FAST_INV, load_default_model  # no
 from silhouette.damit import read_damit_lcs  # noqa: E402
 from silhouette.inversion import LightCurveObs, _sep_deg  # noqa: E402
 from silhouette.scoring import (  # noqa: E402
-    alias_periods, baseline_of, score_solutions, spin_vector_pole,
+    alias_periods, baseline_of, score_solutions,
 )
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -75,14 +73,13 @@ def run(label, lcs, args, model):
     print(rep.summary())
     rows = []
     for i, c in enumerate(rep.candidates):
-        sv = spin_vector_pole(c.pole_lon, c.pole_lat)
+        sv = (c.pole_lon, c.pole_lat)
         d = _sep_deg(*sv, *DAMIT_POLE)
         d_mirror = _sep_deg(*sv, DAMIT_POLE[0] + 180.0, DAMIT_POLE[1])
         on_p = abs(c.period * 24.0 - PERIOD_H) < 1e-6
-        print(f"  #{i}: spin-vector pole ({sv[0]:6.1f},{sv[1]:6.1f})  {d:5.1f} deg from DAMIT, "
+        print(f"  #{i}: pole ({sv[0]:6.1f},{sv[1]:6.1f})  {d:5.1f} deg from DAMIT, "
               f"{d_mirror:5.1f} from DAMIT's mirror, DAMIT period: {on_p}  p={c.probability:.3f}")
-        rows.append({"period_h": c.period * 24, "pole_silhouette": [c.pole_lon, c.pole_lat],
-                     "pole_spin_vector": list(sv), "sep_damit": d, "sep_damit_mirror": d_mirror,
+        rows.append({"period_h": c.period * 24, "pole": list(sv), "sep_damit": d, "sep_damit_mirror": d_mirror,
                      "redchi2": c.redchi2, "like_weight": c.like_weight,
                      "boot_frac": c.boot_frac, "probability": c.probability})
     return {"label": label, "calibrated": rep.calibrated, "noise": rep.noise,

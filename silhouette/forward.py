@@ -111,11 +111,18 @@ def _ry(t):
 def ecliptic_to_body_matrix(pole_lon: float, pole_lat: float, phi: float) -> np.ndarray:
     """Rotation taking ecliptic vectors into the body-fixed frame.
 
-    ``R = R_z(φ) · R_y(β_p − π/2) · R_z(−λ_p)``, which maps the spin-pole
+    ``R = R_z(−φ) · R_y(β_p − π/2) · R_z(−λ_p)``, which maps the spin-pole
     direction ``(cosβ cosλ, cosβ sinλ, sinβ)`` onto the body ``+z`` axis for any
     rotation phase ``φ``.
+
+    **Pole convention.** The body turns by ``+φ`` about the pole (its inverse,
+    body → ecliptic, is ``R_z(λ) R_y(π/2 − β) R_z(φ)``, as in Kaasalainen &
+    Torppa 2001), so ``(λ_p, β_p)`` is the direction of the spin **angular
+    momentum** — the DAMIT / literature convention, and poles can be compared
+    with DAMIT directly. (Before 2026-09-30 the sign of ``φ`` was the other way,
+    which made Silhouette's pole the antipode ``(λ + 180°, −β)`` of DAMIT's.)
     """
-    return _rz(phi) @ _ry(np.radians(pole_lat) - np.pi / 2.0) @ _rz(-np.radians(pole_lon))
+    return _rz(-phi) @ _ry(np.radians(pole_lat) - np.pi / 2.0) @ _rz(-np.radians(pole_lon))
 
 
 def rotation_phase(times, period: float, phi0: float = 0.0, t0: Optional[float] = None):
@@ -168,7 +175,9 @@ def convex_lightcurve(shape: ConvexShape, times, sun_vecs, earth_vecs,
     sun_vecs, earth_vecs : (N, 3) asteroid-centric **ecliptic** vectors toward
         the Sun and observer (magnitudes ignored; DAMIT files supply these
         directly)
-    pole_lon, pole_lat : spin pole ecliptic longitude/latitude, degrees
+    pole_lon, pole_lat : spin pole ecliptic longitude/latitude, degrees — the
+        angular-momentum direction (DAMIT convention; the body rotates
+        prograde about it)
     period : rotation period, in the units of ``times``
     phi0, t0 : rotation phase zero point and its epoch
     phot_func, arg : scattering law and its parameter
@@ -188,14 +197,15 @@ def convex_lightcurve(shape: ConvexShape, times, sun_vecs, earth_vecs,
     phis = rotation_phase(times, period, phi0, t0)
 
     # Vectorised over epochs: the pole part of the rotation is constant, so
-    # apply it once and fold the per-epoch spin R_z(phi) in analytically.
+    # apply it once and fold the per-epoch spin R_z(−phi) in analytically
+    # (same convention as ecliptic_to_body_matrix: prograde about the pole).
     pole_rot = _ry(np.radians(pole_lat) - np.pi / 2.0) @ _rz(-np.radians(pole_lon))
     cos_p, sin_p = np.cos(phis), np.sin(phis)
 
     def _spin(vecs):
         u = vecs @ pole_rot.T
-        return np.column_stack([u[:, 0] * cos_p - u[:, 1] * sin_p,
-                                u[:, 0] * sin_p + u[:, 1] * cos_p,
+        return np.column_stack([u[:, 0] * cos_p + u[:, 1] * sin_p,
+                                -u[:, 0] * sin_p + u[:, 1] * cos_p,
                                 u[:, 2]])
 
     mu0 = shape.normals @ _spin(s_hat).T          # (n_normals, n_epochs)

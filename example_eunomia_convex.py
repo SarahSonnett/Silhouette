@@ -66,9 +66,19 @@ def angular_sep(p1, p2):
 
 
 def offset_to_damit(lon, lat):
-    """Separation from the DAMIT pole, allowing for the mirror ambiguity."""
-    return min(angular_sep((lon, lat), DAMIT_POLE),
-               angular_sep(((lon + 180.0) % 360.0, -lat), DAMIT_POLE))
+    """Separation from the DAMIT pole.
+
+    Poles are spin angular-momentum directions in both Silhouette and DAMIT,
+    so they compare directly. (Before 2026-09-30 Silhouette's pole was the
+    antipode ``(λ+180°, −β)`` of DAMIT's, and this function allowed for that
+    flip under the name "mirror".)
+    """
+    return angular_sep((lon, lat), DAMIT_POLE)
+
+
+def offset_to_damit_mirror(lon, lat):
+    """Separation from DAMIT's ``(λ+180°, β)`` mirror — the genuine ambiguity."""
+    return angular_sep((lon, lat), ((DAMIT_POLE[0] + 180.0) % 360.0, DAMIT_POLE[1]))
 
 
 def main():
@@ -107,8 +117,9 @@ def main():
     print(f"\nDAMIT model : pole ({DAMIT_POLE[0]:.0f}, {DAMIT_POLE[1]:.0f}) deg, "
           f"P = {PERIOD_H} h")
     print(f"Silhouette  : pole ({res.pole_lon:.1f}, {res.pole_lat:.1f}) deg  ->  "
-          f"{offset_to_damit(res.pole_lon, res.pole_lat):.1f} deg from DAMIT "
-          f"(mirror allowed)")
+          f"{offset_to_damit(res.pole_lon, res.pole_lat):.1f} deg from DAMIT, "
+          f"{offset_to_damit_mirror(res.pole_lon, res.pole_lat):.1f} deg from its "
+          f"(λ+180°, β) mirror")
     print(f"              a:b = {ab:.3f}, b:c = {bc:.3f}")
 
     # Distinct pole solutions, not just the single lowest-chi^2 start. Several

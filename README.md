@@ -296,9 +296,10 @@ Out-of-sample results (nested, injection-grouped CV):
 Details, the per-apparition breakdown, limitations and real-data tests (Eunomia,
 16152) are in [docs/scoring.md](docs/scoring.md).
 
-> **Pole convention.** Silhouette's pole points *opposite* to the spin angular
-> momentum, so DAMIT's pole is Silhouette's antipode (λ + 180°, −β). Use
-> `spin_vector_pole()` before comparing; `score_target.py` prints both.
+> **Pole convention.** Poles are spin angular-momentum directions (prograde
+> rotation about the pole), the same convention as DAMIT, so they compare
+> directly. This changed on 2026-09-30; earlier poles were the antipode
+> (λ + 180°, −β).
 
 ## 5. Runtime
 
@@ -516,10 +517,14 @@ python example_eunomia_convex.py --n-workers 8   # convex inversion
 ```
 
 109 DAMIT light curves, 22 apparitions over 68 years. The analytical method
-lands 28° from the DAMIT pole. The convex inversion reaches χ²ᵥ = 0.94 and
-resolves **two statistically indistinguishable pole families**, one **3.2°** from
-DAMIT — a large improvement, but genuinely degenerate, which is why the example
-reports families rather than a single winner.
+lands 28° from the DAMIT pole. The convex inversion reaches χ²ᵥ = 0.93 and
+resolves **two statistically indistinguishable pole families**. One is at
+(354°, −68°), **3.5°** from DAMIT, compared directly because the poles share
+DAMIT's convention. The other is at (91°, −78°), 25° away. That is a large
+improvement, but the pole is genuinely degenerate, which is why the example
+reports families rather than a single winner. The calibrated scorer
+(`example_eunomia_scoring.py`) currently gives the DAMIT family 0.2–0.3; see
+[docs/scoring.md](docs/scoring.md).
 
 ### 2. Single-apparition, real — (16152)
 

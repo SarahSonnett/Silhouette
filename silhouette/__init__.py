@@ -79,7 +79,6 @@ from .scoring import (
     find_candidates,
     principal_axis_logprior,
     score_solutions,
-    spin_vector_pole,
 )
 from .calibration import ScoreModel, load_default_model
 from .planning import horizons_geometry, recommend_observations, simple_orbit_geometry
@@ -113,7 +112,7 @@ __all__ = [
     "plot_summary", "save_summary",
     # solution scorer
     "Candidate", "PopulationPrior", "ScoreReport", "alias_periods", "find_candidates",
-    "principal_axis_logprior", "score_solutions", "spin_vector_pole",
+    "principal_axis_logprior", "score_solutions",
     "ScoreModel", "load_default_model",
     "horizons_geometry", "recommend_observations", "simple_orbit_geometry",
     "lightcurves_from_photometry", "spindoc_periods",

@@ -14,8 +14,7 @@ the question. Probabilities are calibrated when ``silhouette/models/scorer_v1.pk
 exists (train it with ``calibrate_scorer.py``), otherwise they are labelled
 uncalibrated.
 
-Poles are printed in both Silhouette's convention and the spin-vector
-(angular-momentum, DAMIT-style) convention.
+Poles are spin angular-momentum directions (DAMIT convention).
 """
 
 from __future__ import annotations
@@ -38,7 +37,7 @@ from silhouette.pipeline import lightcurves_from_photometry, spindoc_periods  # 
 from silhouette.planning import (  # noqa: E402
     format_recommendations, horizons_geometry, recommend_observations,
 )
-from silhouette.scoring import baseline_of, score_solutions, spin_vector_pole  # noqa: E402
+from silhouette.scoring import baseline_of, score_solutions  # noqa: E402
 
 
 def main():
@@ -83,17 +82,11 @@ def main():
                           n_boot=args.n_boot, boot_max_nfev=30, model=model, **FAST_INV)
     print(f"scored in {time.time() - t0:.0f}s\n")
     print(rep.summary())
-    print("\n  spin-vector (DAMIT-convention) poles:")
-    for i, c in enumerate(rep.candidates):
-        sv = spin_vector_pole(c.pole_lon, c.pole_lat)
-        print(f"   #{i}: ({sv[0]:6.1f}, {sv[1]:6.1f})  P = {c.period * 24:.5f} h  "
-              f"p = {c.probability:.3f}")
 
     summary = {"target": args.target, "calibrated": rep.calibrated, "noise": rep.noise,
                "data": rep.data, "p_none": rep.p_none,
                "candidates": [{"period_h": c.period * 24,
-                               "pole_silhouette": [c.pole_lon, c.pole_lat],
-                               "pole_spin_vector": list(spin_vector_pole(c.pole_lon, c.pole_lat)),
+                               "pole": [c.pole_lon, c.pole_lat],
                                "redchi2": c.redchi2, "ab_proxy": c.elongation,
                                "bc_proxy": c.flattening, "like_weight": c.like_weight,
                                "boot_frac": c.boot_frac, "probability": c.probability}

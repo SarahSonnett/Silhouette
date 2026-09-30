@@ -36,9 +36,9 @@ starts into pole families.
 
 Pole convention
 ---------------
-Poles here are in Silhouette's own convention (the same one
-:func:`silhouette.forward.convex_lightcurve` uses). See ``docs/scoring.md`` for
-the note on how that convention relates to DAMIT's spin-vector poles.
+Poles are spin angular-momentum directions (the DAMIT convention; see
+:func:`silhouette.forward.ecliptic_to_body_matrix`), so they compare directly
+with DAMIT and the literature.
 """
 
 from __future__ import annotations
@@ -59,20 +59,6 @@ from .inversion import (
     invert_convex,
 )
 from .shapes import ConvexShape
-
-def spin_vector_pole(lon: float, lat: float) -> Tuple[float, float]:
-    """Convert a Silhouette pole to the angular-momentum (DAMIT-style) pole.
-
-    :func:`silhouette.forward.ecliptic_to_body_matrix` applies ``R_z(+φ)`` to
-    ecliptic vectors, which means the *body* turns by ``−φ`` about the stated
-    pole: Silhouette's pole points **opposite** to the spin angular momentum.
-    DAMIT (and the literature) quote the angular-momentum direction, i.e. the
-    antipode ``(λ + 180°, −β)``. Both describe the same physical rotation, so
-    comparisons with DAMIT must go through this conversion. (Found 2026-09-29;
-    it is why the Eunomia example matched DAMIT only "with mirror allowed".)
-    """
-    return float((lon + 180.0) % 360.0), float(-lat)
-
 
 # ---------------------------------------------------------------------------
 # Candidate container
@@ -726,7 +712,7 @@ def score_solutions(
 
 
 __all__ = [
-    "Candidate", "PopulationPrior", "ScoreReport", "spin_vector_pole",
+    "Candidate", "PopulationPrior", "ScoreReport",
     "principal_axis_logprior",
     "projected_areas", "shape_proxies", "alias_periods", "baseline_of",
     "find_candidates", "likelihood_weights", "residual_autocorrelation",

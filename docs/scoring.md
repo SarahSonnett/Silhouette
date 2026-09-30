@@ -132,20 +132,39 @@ The requirement is really geometry diversity. Choosing the next apparition
 for its discriminating power can settle a solution that three arbitrary
 apparitions might not.
 
-## Pole convention: important
+## Pole convention (changed 2026-09-30)
 
-`forward.ecliptic_to_body_matrix` applies R_z(+φ) to ecliptic vectors, so the
-body turns by −φ about the stated pole. **Silhouette's pole points opposite to
-the spin angular momentum.** DAMIT and the literature quote the
-angular-momentum direction, which is the antipode (λ + 180°, −β). Both describe
-the same physical rotation. Use `scoring.spin_vector_pole` before comparing
-with DAMIT; `score_target.py` prints both conventions.
+Poles are **spin angular-momentum directions**, the DAMIT/literature
+convention: the body rotates prograde about the stated pole
+(`forward.ecliptic_to_body_matrix` = R_z(−φ)·R_y(β−90°)·R_z(−λ), whose inverse is
+Kaasalainen & Torppa's R_z(λ)R_y(90°−β)R_z(φ)). They compare with DAMIT directly.
 
-This is why `example_eunomia_convex.py` matched DAMIT only "with mirror
-allowed". Its "mirror" was (λ + 180°, −β), exactly this flip, not the true
-(λ + 180°, β) mirror ambiguity. The core convention has **not** been changed.
-That needs a decision, because flipping the sign of φ in `forward.py` changes
-the meaning of every stored pole and the Eunomia and 16152 examples.
+Before 2026-09-30 the sign of φ was reversed. Silhouette's pole was then the
+antipode (λ + 180°, −β) of DAMIT's, and the old `example_eunomia_convex.py`
+matched DAMIT only "with mirror allowed", where its "mirror" was really this
+flip. Tests now pin the convention in two places:
+
+- `test_rotation_is_prograde_about_pole`;
+- `test_vectorised_lightcurve_matches_per_epoch_matrix`, which uses an
+  irregular body because an ellipsoid can hide the rotation sense.
+
+**The calibration model is unaffected.** Under the flip the model space maps
+onto itself exactly: pole → antipode, and the shape is rotated by a fixed
+rotation that the SH basis absorbs. Every feature the classifier uses is
+invariant under that map (|β|, the mirror/antipode relations, projected-area
+proxies, the χ² evidence). Only the fixed 20-start grid sits in a different
+place relative to each truth.
+
+A re-run of 24 injections under the new convention checked this:
+
+- truth among the candidates: 0.917 in both conventions;
+- mean calibrated P(top): 0.74 vs 0.73;
+- top candidate correct: 0.62 vs 0.79 (4 flips, all 1–2 apparitions, where
+  the new start grid found a deeper wrong basin that the old grid had missed).
+
+This is consistent with noise at n = 24. The injection CSV's `true_lon/lat`
+columns are in the old convention, which is internally consistent because
+truths and fits used the same one.
 
 ## Results: injection-recovery calibration (2026-09-29/30 overnight run)
 
@@ -242,9 +261,11 @@ but the likelihood layer's information largely subsumes it at `n_boot = 10`.
 
 ## Real data
 
-All of these use the calibrated settings and `n_workers = 4`. Poles are
-compared with DAMIT in the spin-vector convention. Outputs are in
-`results/scorer/`.
+All of these use the calibrated settings and `n_workers = 4`. Outputs are in
+`results/scorer/`. The Eunomia and 16152 numbers below were produced before
+the convention flip and have been restated in the DAMIT convention, which is
+what the old runs were converted to at the time. The Eunomia runs have also
+been repeated after the flip (see the end of this section).
 
 **Synthetic demo** (`example_scoring.py`, 2 apparitions, near-ecliptic,
 240 points). The truth is ranked first at p = 0.55, 1.3° from the true pole.
@@ -284,6 +305,23 @@ assumed typical one.
 - The planner puts the most decisive dates in 2027 March–June, at elongation
   125–160° and phase 4–9°. The predicted amplitudes of the candidates differ
   by up to 0.7 mag there, so any night then is decisive.
+
+**Repeated after the convention flip** (same data and settings; poles now
+come out directly in the DAMIT convention):
+
+- `example_eunomia_convex.py` (lmax 4, 30 starts): the same two χ²-equivalent
+  families as before, now reported as (354.3°, −68.0°), **3.5° from DAMIT**,
+  and (91.3°, −77.8°), 25.5° away. Before the flip these were printed as
+  (174°, 68°) and (268°, 77°), their antipodes.
+- **Eunomia, two apparitions:** the top candidate is now 10.7° from DAMIT
+  (p = 0.37). Two more candidates within 13° of DAMIT's pole sit at an alias
+  period.
+- **Eunomia, all curves:** DAMIT family p = 0.19, the other family p = 0.81.
+- **These re-runs differ from the pre-flip runs by more than rounding.** The
+  fixed start grid sits in a different place relative to the pole, so
+  different basins are found. The spread (0.19 vs 0.30 for the DAMIT family)
+  shows directly how much start-grid luck enters on hard real data. It is
+  another argument for a denser grid.
 
 ### Known ceilings of this calibration
 

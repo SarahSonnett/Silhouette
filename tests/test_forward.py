@@ -69,6 +69,43 @@ def test_rotation_matrix_is_orthonormal():
     assert np.isclose(np.linalg.det(r), 1.0)
 
 
+@pytest.mark.parametrize("lam,bet", [(30, 40), (3, -67), (250, 5)])
+def test_rotation_is_prograde_about_pole(lam, bet):
+    """Pole = spin angular momentum (DAMIT convention): a body-fixed point
+    moves counter-clockwise seen from the pole as the phase increases."""
+    p = np.array([np.cos(np.radians(bet)) * np.cos(np.radians(lam)),
+                  np.cos(np.radians(bet)) * np.sin(np.radians(lam)),
+                  np.sin(np.radians(bet))])
+    xb = np.array([1.0, 0.0, 0.0])
+    r1 = ecliptic_to_body_matrix(lam, bet, 0.0).T @ xb
+    r2 = ecliptic_to_body_matrix(lam, bet, 0.1).T @ xb
+    assert np.dot(np.cross(r1, r2), p) > 0
+
+
+def test_vectorised_lightcurve_matches_per_epoch_matrix():
+    """convex_lightcurve's folded-in spin must use the same sign as
+    ecliptic_to_body_matrix (the convention lives in two places). An irregular
+    body is used because an ellipsoid's light curve can hide the rotation sense."""
+    from silhouette.calibration import irregular_shape
+    rng = np.random.default_rng(0)
+    ellipsoid = irregular_shape(1.8, 1.2, 0.2, rng)
+    lam, bet, period, phi0 = 40.0, 25.0, 0.3, 0.7
+    t = np.sort(rng.uniform(0.0, 0.3, 15))
+    sun = np.array([1.0, 0.2, 0.05])
+    earth = np.array([1.0, 0.0, 0.02])
+    lc = convex_lightcurve(ellipsoid, t, sun, earth, lam, bet, period, phi0=phi0, t0=0.0,
+                           phot_func=lambert)
+    phis = rotation_phase(t, period, phi0, 0.0)
+    ref = [convex_brightness(ellipsoid,
+                             ecliptic_to_body_matrix(lam, bet, ph) @ (sun / np.linalg.norm(sun)),
+                             ecliptic_to_body_matrix(lam, bet, ph) @ (earth / np.linalg.norm(earth)),
+                             phot_func=lambert,
+                             alpha=float(np.arccos(np.dot(sun, earth) / np.linalg.norm(sun)
+                                                   / np.linalg.norm(earth))))
+           for ph in phis]
+    np.testing.assert_allclose(lc, ref, rtol=1e-10)
+
+
 def test_rotation_phase_advances_one_turn_per_period():
     phi = rotation_phase([0.0, 0.5, 1.0], period=1.0, phi0=0.0, t0=0.0)
     assert np.allclose(phi, [0.0, np.pi, 2 * np.pi])

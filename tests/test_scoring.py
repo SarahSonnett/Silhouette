@@ -284,20 +284,6 @@ def test_recommender_ranks_and_filters(cands):
     assert len(strict) < lons.size
 
 
-def test_spin_vector_pole_matches_rotation_sense():
-    """Silhouette's pole is anti-parallel to the angular momentum; the helper flips it."""
-    from silhouette.forward import ecliptic_to_body_matrix
-    from silhouette.scoring import spin_vector_pole
-    lon, lat = 30.0, 40.0
-    xb = np.array([1.0, 0.0, 0.0])
-    p1 = ecliptic_to_body_matrix(lon, lat, 0.0).T @ xb
-    p2 = ecliptic_to_body_matrix(lon, lat, 0.1).T @ xb
-    omega = np.cross(p1, p2)                     # direction of physical spin
-    slon, slat = spin_vector_pole(lon, lat)
-    assert np.dot(omega, _dir(slon, slat)) > 0
-    assert np.dot(omega, _dir(lon, lat)) < 0
-
-
 def test_simple_orbit_geometry_opposition():
     from silhouette.planning import simple_orbit_geometry
     sun, earth = simple_orbit_geometry([0.0], a_au=2.5, incl_deg=0.0, lon0_deg=0.0)

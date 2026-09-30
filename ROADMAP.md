@@ -29,9 +29,8 @@ landed and what changed along the way. Remaining open questions are flagged
 
 **Scorer follow-ups (open):**
 
-- **[DECIDE] pole convention**: Silhouette's pole is anti-parallel to the spin
-  angular momentum (`spin_vector_pole` converts). Flipping `R_z(φ)` in
-  `forward.py` would match DAMIT but changes every stored pole.
+- ~~Pole convention~~ **resolved 2026-09-30**: flipped to the DAMIT
+  (angular-momentum) convention; see `docs/scoring.md`.
 - Denser start grid (30 vs 20) to lift "truth among candidates" from 83%;
   retrain after any change to `FAST_INV`/`FAST_GRID`.
 - Richer injection truths: non-convex shapes, albedo spots, Hapke-like
