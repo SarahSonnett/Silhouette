@@ -606,6 +606,8 @@ class ScoreReport:
     data: Dict[str, float]
     calibrated: bool
     p_none: float = np.nan   # calibrated P(no candidate is correct), if available
+    # features outside the calibration model's training range: {name: (value, lo, hi)}
+    out_of_range: Dict[str, Tuple[float, float, float]] = field(default_factory=dict)
 
     def summary(self) -> str:
         kind = ("calibrated P(correct)" if self.calibrated
@@ -630,6 +632,12 @@ class ScoreReport:
                 f"{c.like_weight:6.3f} {c.boot_frac:5.2f} {c.probability:6.3f}")
         if self.calibrated and np.isfinite(self.p_none):
             lines.append(f"  P(none of these is correct) ~ {self.p_none:.2f}")
+        if self.out_of_range:
+            items = ", ".join(f"{k}={v:.3g} (trained {lo:.3g}-{hi:.3g})"
+                              for k, (v, lo, hi) in sorted(self.out_of_range.items()))
+            lines.append("  WARNING: data outside the calibration set -- probabilities are "
+                         "extrapolated, not calibrated:")
+            lines.append(f"    {items}")
         return "\n".join(lines)
 
 
@@ -691,6 +699,11 @@ def score_solutions(
     candidate_features(cands, lightcurves, noise_diag=noise, data_feats=dfeat)
 
     p_none = np.nan
+    ood: Dict[str, Tuple[float, float, float]] = {}
+    if model is not None and hasattr(model, "out_of_range"):
+        for c in cands:
+            for k, v in model.out_of_range(c.features).items():
+                ood.setdefault(k, v)
     if model is not None:
         probs = model.predict_proba(cands)
         # families are >= pole_tol apart, so "candidate i is correct" events are
@@ -708,7 +721,7 @@ def score_solutions(
         combine_uncalibrated(cands)
     cands.sort(key=lambda c: -c.probability)
     return ScoreReport(candidates=cands, noise=noise, data=dfeat,
-                       calibrated=model is not None, p_none=p_none)
+                       calibrated=model is not None, p_none=p_none, out_of_range=ood)
 
 
 __all__ = [

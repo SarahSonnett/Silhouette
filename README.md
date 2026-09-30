@@ -269,7 +269,8 @@ It works in three layers:
 2. **Whole-light-curve bootstrap agreement.**
 3. **A calibration classifier.** A gradient-boosted model with isotonic
    calibration was trained on 1220 injected synthetic asteroids run through the
-   identical pipeline.
+   identical pipeline (calibration v2: a 30-start, antipode-symmetric pole
+   grid).
 
 `recommend_observations` then ranks future dates by the expected probability
 of the true solution after one more night.
@@ -278,13 +279,18 @@ Out-of-sample results (nested, injection-grouped CV):
 
 | | objects correctly solved | false-solution rate |
 |---|---|---|
-| classical rule (no rival within 10%) | 38.0% | 9.2% |
-| **scorer at the same false rate** | **48.1%** | 8.7% |
-| **scorer at 5%** | **43.1%** | 4.9% |
+| classical rule (no rival within 10%) | 35.4% | 5.5% |
+| **scorer at 5%** | **48.0%** | 4.9% |
+| **scorer at 1%** | **39.0%** | ≤1% |
+| **scorer at 10%** | **51.4%** | ≤10% |
 
-- The calibrated probabilities are reliable, with Brier 0.067 against 0.095
+- The calibrated probabilities are reliable, with Brier 0.080 against 0.121
   for raw likelihood weights.
-- They stay calibrated on the 58% of objects the classical rule rejects.
+- They stay calibrated on the 63% of objects the classical rule rejects.
+- The true solution is among the candidates for 87% of objects.
+- Every model stores its training feature ranges, and the report **warns
+  when the data fall outside them**, for example far more light curves or
+  apparitions than were injected.
 - For single-apparition data, two thirds of the classical rule's accepted
   poles are wrong. The scorer instead reports a low probability (about 0.2),
   which is accurate.
@@ -478,18 +484,19 @@ python score_target.py photometry.txt --target 16152 --period-h 22.936 \
 
 ```python
 from silhouette import (read_photometry, lightcurves_from_photometry, spindoc_periods,
-                        score_solutions, load_default_model)
-from silhouette.calibration import FAST_GRID, FAST_INV   # the calibrated settings
+                        score_solutions)
+from silhouette.calibration import FAST_INV, calibrated_setup
 
+grid, model, version = calibrated_setup()        # a start grid and model that belong together
 lcs = lightcurves_from_photometry(read_photometry("phot.txt"), target="16152")
-rep = score_solutions(lcs, spindoc_periods(22.936, 50.0), pole_grid=FAST_GRID,
-                      model=load_default_model(), n_workers=4, **FAST_INV)
+rep = score_solutions(lcs, spindoc_periods(22.936, 50.0), pole_grid=grid,
+                      model=model, n_workers=4, **FAST_INV)
 print(rep.summary())
 ```
 
 The calibration model is regenerated, not committed:
-`python calibrate_scorer.py run --workers 4 --hours 6` then
-`python calibrate_scorer.py train`.
+`python calibrate_scorer.py run --workers 4` (about 10 h for 1220 injections
+with the v2 grid) then `python calibrate_scorer.py train`.
 
 ### Command line
 
@@ -523,7 +530,9 @@ resolves **two statistically indistinguishable pole families**. One is at
 DAMIT's convention. The other is at (91°, −78°), 25° away. That is a large
 improvement, but the pole is genuinely degenerate, which is why the example
 reports families rather than a single winner. The calibrated scorer
-(`example_eunomia_scoring.py`) currently gives the DAMIT family 0.2–0.3; see
+(`example_eunomia_scoring.py`) favours the *other* family here and flags the
+data as outside its calibration range (106 curves and 22 apparitions, against
+at most 21 and 6 in training), so those probabilities are extrapolations; see
 [docs/scoring.md](docs/scoring.md).
 
 ### 2. Single-apparition, real — (16152)

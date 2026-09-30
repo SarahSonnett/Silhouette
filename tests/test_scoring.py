@@ -359,3 +359,16 @@ def test_calibrated_probabilities_renormalised_when_overfull(lcs):
         assert total == pytest.approx(1.0)
         assert rep.p_none == 0.0
         assert all(c.probability_raw == pytest.approx(0.8) for c in rep.candidates)
+
+
+def test_out_of_range_guard():
+    rng = np.random.default_rng(1)
+    n = 300
+    X = rng.uniform(0.0, 1.0, size=(n, len(FEATURES)))
+    y = (X[:, 0] > 0.5).astype(float)
+    m = fit_score_model(X, y, np.repeat(np.arange(n // 3), 3), n_splits=3)
+    inside = {f: 0.5 for f in FEATURES}
+    assert m.out_of_range(inside) == {}
+    outside = dict(inside, n_lc=5.0)
+    ood = m.out_of_range(outside)
+    assert list(ood) == ["n_lc"] and ood["n_lc"][0] == 5.0

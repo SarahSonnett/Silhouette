@@ -100,10 +100,12 @@ The calibrated probabilities do not have to sum to 1 over the candidates.
 `ScoreReport.p_none = 1 − Σp` is the probability that the truth is not among
 them.
 
-The model is only calibrated for the settings it was trained with
-(`calibration.FAST_INV` = lmax 3, 150 normals, 150 function evaluations, and
-the 20-start `FAST_GRID`). `score_target.py` and the examples use those
-settings. Use different settings, and you should retrain.
+The model is only calibrated for the settings it was trained with:
+`calibration.FAST_INV` (lmax 3, 150 normals, 150 function evaluations) plus
+that version's start grid (`CALIBRATION_GRIDS`: v1 = 20 starts, v2 = 30
+antipodal starts). `calibrated_setup()` returns a grid and model that belong
+together, and `score_target.py` and the examples use it. Use different
+settings, and you should retrain (`calibrate_scorer.py --version ...`).
 
 ## The observation recommender
 
@@ -166,7 +168,62 @@ This is consistent with noise at n = 24. The injection CSV's `true_lon/lat`
 columns are in the old convention, which is internally consistent because
 truths and fits used the same one.
 
-## Results: injection-recovery calibration (2026-09-29/30 overnight run)
+## Calibration v2: denser, antipode-symmetric start grid (current)
+
+v2 replaces v1's 20-start longitude × latitude grid with **30 near-uniform
+starts closed under the antipode map** (`calibration.antipodal_pole_grid`, minimum
+spacing 21.7°). Start coverage no longer depends on the pole sign convention.
+Everything else is identical: the same truths (seeds 0–1219), settings, and
+nested grouped-CV evaluation. `calibrated_setup()` returns the v2 grid and model
+together, so the CLI and examples use v2 automatically.
+
+![calibration v2](images/scorer_calibration.png)
+
+| | v1 (20 starts) | **v2 (30 antipodal starts)** |
+|---|---|---|
+| truth among candidates | 83.3% | **87.4%** |
+| … by apparitions 1 / 2 / 3 / 4 / 5 / 6 | .44 / .78 / .88 / .96 / .99 / .99 | .45 / **.85 / .95 / .99** / 1.00 / .99 |
+| **scorer: objects correctly solved at ≤1% false** | 21.7% | **39.0%** |
+| … at ≤2% false | 37.5% | **41.4%** |
+| … at ≤5% false | 43.1% | **48.0%** |
+| … at ≤10% false | 48.1% | **51.4%** |
+| classical 10% rule: solved / false rate | 38.0% / 9.2% | 35.4% / 5.5% |
+| scorer at the classical rule's false rate | 48.1% (vs 38.0%) | 48.0% (vs 35.4%) |
+| best-χ² candidate is correct | 63.0% | 61.3% |
+| Brier: calibrated / raw likelihood / best-χ² indicator | 0.067 / 0.095 / 0.133 | 0.080 / 0.121 / 0.165 |
+| median time per object (1 core) | 74 s | 104 s |
+
+**Reading it.**
+
+- **The denser grid does what it was for.** It finds the true basin more
+  often, mostly for 2–4 apparitions: 3 apparitions went from 88% to 95%.
+- **The scorer turns that into yield at every false-solution rate.** The
+  biggest gain is at the strict end, where objects solved at ≤1% false went
+  from 22% to 39%. At 5% false it now solves 48% of objects, against the
+  classical rule's 35% at 5.5% false: **36% more objects at a lower error
+  rate.**
+- **More starts also find more deep *wrong* minima.** These are competitors
+  that fit as well as the truth, or better, under model mismatch. So picking
+  the lowest χ² gets slightly worse (63.0% → 61.3%), as do all the Brier
+  scores, including the baselines'. The classification problem is harder
+  because the candidate lists are more honest.
+- **Brier is not comparable across versions.** Each version is scored on its
+  own candidate set, so the metric that carries over is yield at a fixed
+  false-solution rate.
+- **Calibration still holds per apparition count.** Mean P(top) against the
+  fraction actually correct: .21 vs .15, .52 vs .46, .72 vs .74, .83 vs .87,
+  .87 vs .89, .92 vs .91. On the 763 objects the classical rule rejects, the
+  mean P(top) is 0.49 against 0.47 correct, and 383 of them get p > 0.5, of
+  which 72% are right.
+- **Cost is about 1.4× per object**, not 1.5×: starts that land in the same
+  basin converge quickly.
+
+![identifiability v2](images/identifiability_map.png)
+
+v1's results are kept below for reference, with figures in
+`docs/images/*_v1.png` and `results/scorer/v1/`.
+
+## Calibration v1 results (20-start grid, 2026-09-29/30 overnight run)
 
 1220 synthetic asteroids gave 6889 candidate solutions. The run took 6.7 h on
 4 cores, at about 180 injections per hour and a median of 74 s each. There
@@ -175,7 +232,7 @@ injection-grouped 5-fold CV gives each injection a probability from a model
 that never saw it, and the isotonic map is fitted by an inner CV. Intervals are
 68% bootstrap intervals over objects.
 
-![calibration](images/scorer_calibration.png)
+![calibration v1](images/scorer_calibration_v1.png)
 
 **Calibration.** The calibrated probabilities sit on the diagonal. The raw
 likelihood weights and the uncalibrated combination are badly overconfident:
@@ -234,7 +291,7 @@ are correct.
 
 **Identifiability map.** This is a free byproduct of the injections.
 
-![identifiability](images/identifiability_map.png)
+![identifiability v1](images/identifiability_map_v1.png)
 
 The ≥3-apparition rule of thumb is visible directly. Measured across all
 noise levels:
@@ -260,6 +317,47 @@ Bootstrap agreement adds little once these are present. It was cheap to keep,
 but the likelihood layer's information largely subsumes it at `n_boot = 10`.
 
 ## Real data
+
+### With calibration v2 (current)
+
+`results/scorer/*_v2.*`; poles in the DAMIT convention.
+
+| target | data | what v2 says | vs DAMIT / truth |
+|---|---|---|---|
+| synthetic demo | 2 apparitions, 240 pts | truth ranked 1st but only p = 0.27; a second candidate within 20° of the truth adds 0.14; its mirror gets 0.20 | truth 9° off (rank 1) |
+| Eunomia, 2 apparitions | 221 pts | probability spread over 8 candidates (0.04–0.17), **flagged** (residual correlation) | closest to DAMIT: 9°, p = 0.14 |
+| Eunomia, all curves | 106 curves, 9868 pts, 22 apparitions | the family 24° from DAMIT gets 0.95, the DAMIT family (3.5°) 0.05, **flagged out of range** | wrong family favoured |
+| 16152 | 1 apparition, 406 pts | every candidate ≤ 0.12, **P(none) = 0.62**, **flagged** (residual correlation, phase < 2°, apparition-length curve) | honest "cannot decide" |
+
+- **The demo's lowest-χ² candidates are wrong.** Four wrong candidates have
+  *lower* χ²_ν (0.925–0.938) than the one at the true pole (0.959). This is
+  model mismatch: an irregular body with lmax 3 and a different Lambert
+  weight. v2 still puts the truth first. It has learned that the wrong ones
+  carry implausible shapes (b/c proxy 0.59–0.64, i.e. spinning about a long
+  axis; `flattening` is among its important features). The classical
+  lowest-χ² rule would have picked a wrong pole here.
+- **Eunomia with all curves is outside the training set.** 106 light
+  curves, 9868 points and 22 apparitions, against at most 21, 1155 and 6 in
+  the injections. The scorer extrapolates confidently in the direction the
+  χ² points, and the χ² points the wrong way on this data (see the
+  sim-to-real note). `ScoreModel.out_of_range` now catches this: every
+  calibration model stores its training feature ranges, and the report
+  prints a **WARNING** when the data fall outside them. Such probabilities
+  should be read as uncalibrated. Covering data-rich targets needs injections
+  with many more curves and apparitions.
+- **Every real data set trips the guard on one feature: `neff_factor`.**
+  Real best-fit residuals are far more correlated along each light curve
+  (lag-1 ρ ≈ 0.5–0.7, N_eff factor 0.17–0.33) than any injection
+  (factor ≥ 0.39, ρ ≤ 0.44). The injections add white noise only, so the one
+  systematic they contain is shape and scattering mismatch. Real photometry
+  also has night-to-night zero-point drifts, comparison-star and airmass
+  trends, and smoothed or digitised archival curves. This is the sim-to-real
+  gap measured as a single number, and it tells the next calibration round
+  exactly what to add: **correlated (red) noise and per-night systematics in
+  the injected photometry.** Until then, treat probabilities on real data as
+  a ranking with honest spreads, not as calibrated odds.
+
+### Earlier runs (calibration v1)
 
 All of these use the calibrated settings and `n_workers = 4`. Outputs are in
 `results/scorer/`. The Eunomia and 16152 numbers below were produced before
@@ -325,20 +423,20 @@ come out directly in the DAMIT convention):
 
 ### Known ceilings of this calibration
 
-- **Truth among candidates, 83% overall.** Most misses are geometric, in 1–2
+- **Truth among candidates, 83% (v1).** Most misses are geometric, in 1–2
   apparitions. About a third of misses have the spin-sense antipode instead,
-  and the median nearest miss is 29°. Some misses come from the 20-start grid.
-  Earlier Silhouette work found that 25–30 starts beat 6, so a denser grid
-  would lift this, at a cost linear in the number of starts.
+  and the median nearest miss is 29°. Some misses came from the 20-start grid:
+  **v2's 30-start grid lifted this to 87%** (see above). The 1-apparition
+  rate (45%) is physics, not search.
 - **Truth model.** The truths are irregular convex bodies with LS+Lambert
   scattering, and the rendering Lambert weight differs from the fit's.
   Real asteroids add non-convexity, albedo variegation, rough-surface phase
   effects and heterogeneous archival photometry. The Eunomia test below shows
   the gap is real.
-- **Settings.** The calibration is valid for `FAST_INV`/`FAST_GRID`, relative
+- **Settings.** The calibration is valid for `FAST_INV` plus its version's grid, relative
   photometry, 20° pole tolerance, and the injected period ±1 alias. Changing
   lmax, the start grid or the tolerance requires retraining
   (`python calibrate_scorer.py run ... && python calibrate_scorer.py train`).
-- **Model file.** `silhouette/models/scorer_v1.pkl` is regenerable and
+- **Model files.** `silhouette/models/scorer_v1.pkl` / `scorer_v2.pkl` are regenerable and
   gitignored (recipe, not binary). The injection table
   (`results/scorer/injections.csv`, 1220 injections) stays local.

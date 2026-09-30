@@ -31,11 +31,19 @@ landed and what changed along the way. Remaining open questions are flagged
 
 - ~~Pole convention~~ **resolved 2026-09-30**: flipped to the DAMIT
   (angular-momentum) convention; see `docs/scoring.md`.
-- Denser start grid (30 vs 20) to lift "truth among candidates" from 83%;
-  retrain after any change to `FAST_INV`/`FAST_GRID`.
+- ~~Denser start grid~~ **done 2026-09-30 (calibration v2)**: 30 antipodal
+  starts; truth-among-candidates 83% → 87%, objects solved at ≤5% false
+  43% → 48%. Retrain after any change to `FAST_INV` or the grid.
 - Richer injection truths: non-convex shapes, albedo spots, Hapke-like
   phase behaviour, heterogeneous archival noise. Real Eunomia shows a
   sim-to-real gap.
+- **Correlated noise in injections (highest priority).** Every real data set
+  tested (Eunomia, 16152) has residual autocorrelation beyond anything
+  injected (N_eff factor 0.17–0.33 vs ≥ 0.39), which trips the range guard.
+  Add red noise, per-night zero-point drifts and airmass trends to `render()`.
+- **Data-rich injections** (up to ~100 curves, ~20 apparitions, archival-style
+  heterogeneous noise and digitised curves), so targets like Eunomia fall
+  inside the calibration range. Today they trigger the out-of-range warning.
 - A sparse-survey mode (Gaia/ATLAS/ZTF points) and mixed dense+sparse runs.
 - Hand the stage-2 NPE project this simulator, injection harness and the
   calibration tests.

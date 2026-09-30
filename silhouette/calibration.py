@@ -422,6 +422,25 @@ class ScoreModel:
         raw = self.classifier.predict_proba(X)[:, 1]
         return np.clip(self.isotonic.predict(raw), 0.0, 1.0)
 
+    def out_of_range(self, features: Dict[str, float], tol: float = 0.0):
+        """Features outside the range seen in training: ``{name: (value, lo, hi)}``.
+
+        Gradient-boosted trees extrapolate flat, so a probability computed for
+        data unlike anything in the injection set (far more curves, points or
+        apparitions) is not calibrated. ``tol`` widens each range by that
+        fraction of its span.
+        """
+        ranges = self.meta.get("feature_ranges", {})
+        out = {}
+        for name, (lo, hi) in ranges.items():
+            v = features.get(name)
+            if v is None or not np.isfinite(v):
+                continue
+            pad = tol * (hi - lo)
+            if v < lo - pad or v > hi + pad:
+                out[name] = (float(v), float(lo), float(hi))
+        return out
+
     def predict_proba(self, candidates) -> np.ndarray:
         X = np.array([[c.features[f] for f in self.features] for c in candidates], dtype=float)
         return self.predict_from_matrix(X)
@@ -498,8 +517,11 @@ def fit_score_model(X: np.ndarray, y: np.ndarray, groups: np.ndarray,
     iso = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds="clip").fit(oof, y)
     clf = _make_classifier(seed).fit(X, y)
     import sklearn
+    ranges = {f: [float(np.nanmin(X[:, i])), float(np.nanmax(X[:, i]))]
+              for i, f in enumerate(features)}
     return ScoreModel(classifier=clf, isotonic=iso, features=list(features),
                       meta={"n_rows": int(y.size), "n_injections": int(np.unique(groups).size),
+                            "feature_ranges": ranges,
                             "sklearn": sklearn.__version__,
                             "trained": time.strftime("%Y-%m-%d %H:%M")})
 
