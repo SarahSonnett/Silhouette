@@ -44,8 +44,10 @@ def horizons_vectors_at(target: str, jd: Sequence[float],
     from astroquery.jplhorizons import Horizons
 
     jd = [float(x) for x in jd]
-    helio = Horizons(id=target, location="@sun", epochs=jd).vectors(refplane="ecliptic")
-    geo = Horizons(id=target, location=location, epochs=jd).vectors(refplane="ecliptic")
+    helio = Horizons(id=target, location="@sun", epochs=jd,
+                     id_type="smallbody").vectors(refplane="ecliptic")
+    geo = Horizons(id=target, location=location, epochs=jd,
+                   id_type="smallbody").vectors(refplane="ecliptic")
     r_h = np.column_stack([np.asarray(helio[k], dtype=float) for k in ("x", "y", "z")])
     r_g = np.column_stack([np.asarray(geo[k], dtype=float) for k in ("x", "y", "z")])
     return -r_h, -r_g

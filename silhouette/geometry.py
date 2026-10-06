@@ -43,7 +43,8 @@ def fetch_horizons_ecliptic(
     out: List[tuple] = []
     for mjd in mjd_epochs:
         jd = mjd + 2_400_000.5
-        obj = Horizons(id=target, location=location, epochs=jd)
+        obj = Horizons(id=target, location=location, epochs=jd,
+                       id_type="smallbody")
         eph = obj.ephemerides()
         # ObsEclLon/ObsEclLat: observer-centric ecliptic coordinates of target.
         out.append((float(eph["ObsEclLon"][0]), float(eph["ObsEclLat"][0])))

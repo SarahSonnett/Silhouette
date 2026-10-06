@@ -180,8 +180,10 @@ def horizons_geometry(target: str, start: str, stop: str, step: str = "5d"
     from astroquery.jplhorizons import Horizons
 
     epochs = {"start": start, "stop": stop, "step": step}
-    helio = Horizons(id=target, location="@sun", epochs=epochs).vectors(refplane="ecliptic")
-    geo = Horizons(id=target, location="500@399", epochs=epochs).vectors(refplane="ecliptic")
+    helio = Horizons(id=target, location="@sun", epochs=epochs,
+                     id_type="smallbody").vectors(refplane="ecliptic")
+    geo = Horizons(id=target, location="500@399", epochs=epochs,
+                   id_type="smallbody").vectors(refplane="ecliptic")
     jd = np.asarray(helio["datetime_jd"], dtype=float)
     r_h = np.column_stack([np.asarray(helio[k], dtype=float) for k in ("x", "y", "z")])
     r_g = np.column_stack([np.asarray(geo[k], dtype=float) for k in ("x", "y", "z")])
